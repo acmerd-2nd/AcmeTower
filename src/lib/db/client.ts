@@ -32,7 +32,7 @@ export function getDb() {
       max: 5,
       idle_timeout: 20,
       connect_timeout: 15,
-      ssl: "require",
+      ssl: { require: true },
     });
     pool.__acmetowerSql = sql;
     pool.__acmetowerDb = drizzle(sql, { schema, logger: false });

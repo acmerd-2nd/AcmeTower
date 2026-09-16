@@ -18,11 +18,18 @@ function loadEnvLocal(): Record<string, string> {
 const env = { ...loadEnvLocal(), ...process.env };
 
 // `generate` needs no live URL; `push`/`migrate` read dbCredentials.url at run time.
+// Supabase pooler requires TLS; node-postgres enables it via the sslmode param.
+function withSsl(u: string): string {
+  if (!u) return u;
+  if (/[?&]sslmode=/.test(u)) return u;
+  return u + (u.includes("?") ? "&" : "?") + "sslmode=require";
+}
+
 export default defineConfig({
   schema: "./src/lib/db/schema.ts",
   out: "./drizzle",
   dialect: "postgresql",
-  dbCredentials: { url: env.DATABASE_URL ?? "" },
+  dbCredentials: { url: withSsl(env.DATABASE_URL ?? "") },
   verbose: true,
   strict: true,
 });
