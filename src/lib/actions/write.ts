@@ -6,8 +6,15 @@ import { requireWebActor } from "@/lib/core/actor";
 import {
   closeBranch,
   createBranch,
+  createCheckpoint,
+  createDecision,
+  createIssue,
   createPhase,
+  createProposal,
   createTask,
+  decideDecision,
+  decideProposal,
+  setIssueStatus,
   setCurrentPhase,
   setCurrentTask,
   setBranchStatus,
@@ -137,5 +144,104 @@ export async function northStarAction(fd: FormData) {
     refresh(projectId, "settings");
   } catch (e) {
     redirect(errPath(projectId, "settings", (e as Error).message ?? "操作失败"));
+  }
+}
+
+const lines = (fd: FormData, k: string) =>
+  (fd.get(k) ? String(fd.get(k)) : "")
+    .split(/\r?\n/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+
+// ───────────── Issue ─────────────
+export async function issueAction(fd: FormData) {
+  const actor = await requireWebActor();
+  const projectId = s(fd, "projectId");
+  const intent = s(fd, "_action");
+  try {
+    if (intent === "add") {
+      await createIssue(actor, {
+        projectId,
+        title: s(fd, "title"),
+        description: s(fd, "description") || null,
+        severity: (s(fd, "severity") || "MEDIUM") as never,
+        relatedTaskId: s(fd, "relatedTaskId") || null,
+        relatedPhaseId: s(fd, "relatedPhaseId") || null,
+      });
+    } else if (intent === "status") {
+      await setIssueStatus(actor, s(fd, "id"), s(fd, "to") as never, s(fd, "resolution") || undefined);
+    }
+    refresh(projectId, "issues");
+  } catch (e) {
+    redirect(errPath(projectId, "issues", (e as Error).message ?? "操作失败"));
+  }
+}
+
+// ───────────── Decision ─────────────
+export async function decisionAction(fd: FormData) {
+  const actor = await requireWebActor();
+  const projectId = s(fd, "projectId");
+  const intent = s(fd, "_action");
+  try {
+    if (intent === "add") {
+      await createDecision(actor, {
+        projectId,
+        title: s(fd, "title"),
+        decision: s(fd, "decision"),
+        reason: s(fd, "reason") || null,
+        alternatives: s(fd, "alternatives") || null,
+        impact: s(fd, "impact") || null,
+      });
+    } else if (intent === "status") {
+      await decideDecision(actor, s(fd, "id"), s(fd, "to") as never);
+    }
+    refresh(projectId, "decisions");
+  } catch (e) {
+    redirect(errPath(projectId, "decisions", (e as Error).message ?? "操作失败"));
+  }
+}
+
+// ───────────── Proposal / Parking Lot ─────────────
+export async function proposalAction(fd: FormData) {
+  const actor = await requireWebActor();
+  const projectId = s(fd, "projectId");
+  const intent = s(fd, "_action");
+  try {
+    if (intent === "add") {
+      await createProposal(actor, {
+        projectId,
+        kind: (s(fd, "kind") || "OTHER") as never,
+        title: s(fd, "title"),
+        reason: s(fd, "reason") || null,
+        description: s(fd, "description") || null,
+        impact: s(fd, "impact") || null,
+        relatedTaskId: s(fd, "relatedTaskId") || null,
+      });
+    } else if (intent === "status") {
+      await decideProposal(actor, s(fd, "id"), s(fd, "to") as never);
+    }
+    refresh(projectId, "proposals");
+  } catch (e) {
+    redirect(errPath(projectId, "proposals", (e as Error).message ?? "操作失败"));
+  }
+}
+
+// ───────────── Checkpoint ─────────────
+export async function checkpointAction(fd: FormData) {
+  const actor = await requireWebActor();
+  const projectId = s(fd, "projectId");
+  try {
+    await createCheckpoint(actor, {
+      projectId,
+      summary: s(fd, "summary"),
+      taskId: s(fd, "taskId") || null,
+      completedItems: lines(fd, "completedItems"),
+      unfinishedItems: lines(fd, "unfinishedItems"),
+      currentStatus: s(fd, "currentStatus") || null,
+      nextAction: s(fd, "nextAction") || null,
+    });
+    refresh(projectId, "checkpoints");
+  } catch (e) {
+    redirect(errPath(projectId, "checkpoints", (e as Error).message ?? "操作失败"));
   }
 }

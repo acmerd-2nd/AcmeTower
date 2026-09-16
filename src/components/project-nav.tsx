@@ -10,6 +10,7 @@ const ITEMS: { href: (id: string) => string; label: string; exact?: boolean }[] 
   { href: (id) => `/projects/${id}/branches`, label: "Branches" },
   { href: (id) => `/projects/${id}/decisions`, label: "Decisions" },
   { href: (id) => `/projects/${id}/issues`, label: "Issues" },
+  { href: (id) => `/projects/${id}/proposals`, label: "Proposals" },
   { href: (id) => `/projects/${id}/checkpoints`, label: "Checkpoints" },
   { href: (id) => `/projects/${id}/agents`, label: "Agents" },
   { href: (id) => `/projects/${id}/settings`, label: "Settings" },

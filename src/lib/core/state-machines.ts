@@ -1,6 +1,7 @@
 import {
   branchStatus,
   decisionStatus,
+  issueStatus,
   phaseStatus,
   proposalStatus,
   taskStatus,
@@ -9,6 +10,7 @@ import {
 type TaskSt = (typeof taskStatus.enumValues)[number];
 type PhaseSt = (typeof phaseStatus.enumValues)[number];
 type BranchSt = (typeof branchStatus.enumValues)[number];
+type IssueSt = (typeof issueStatus.enumValues)[number];
 type DecisionSt = (typeof decisionStatus.enumValues)[number];
 type ProposalSt = (typeof proposalStatus.enumValues)[number];
 
@@ -49,6 +51,13 @@ export const PROPOSAL_TRANSITIONS: Record<ProposalSt, ProposalSt[]> = {
   APPROVED: [],
   REJECTED: [],
   PARKED: ["PENDING"],
+};
+
+export const ISSUE_TRANSITIONS: Record<IssueSt, IssueSt[]> = {
+  OPEN: ["IN_PROGRESS", "RESOLVED", "WONT_FIX"],
+  IN_PROGRESS: ["OPEN", "RESOLVED", "WONT_FIX"],
+  RESOLVED: ["OPEN"],
+  WONT_FIX: ["OPEN"],
 };
 
 /** A no-op (same status) is always allowed; otherwise the edge must exist. */

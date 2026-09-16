@@ -1,6 +1,15 @@
-import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
-import { branches, phases, tasks } from "@/lib/db/schema";
+import {
+  agents,
+  branches,
+  checkpoints,
+  decisions,
+  issues,
+  phases,
+  proposals,
+  tasks,
+} from "@/lib/db/schema";
 
 export async function listPhaseRows(projectId: string) {
   const db = getDb();
@@ -87,4 +96,79 @@ export async function taskOptions(projectId: string) {
     .from(tasks)
     .where(and(eq(tasks.projectId, projectId), isNull(tasks.deletedAt)))
     .orderBy(asc(tasks.createdAt));
+}
+
+export async function listIssueRows(projectId: string) {
+  const db = getDb();
+  return db
+    .select({
+      id: issues.id,
+      title: issues.title,
+      description: issues.description,
+      severity: issues.severity,
+      status: issues.status,
+      source: issues.source,
+      resolution: issues.resolution,
+      relatedTaskId: issues.relatedTaskId,
+      relatedPhaseId: issues.relatedPhaseId,
+      version: issues.version,
+      createdAt: issues.createdAt,
+    })
+    .from(issues)
+    .where(and(eq(issues.projectId, projectId), isNull(issues.deletedAt)))
+    .orderBy(desc(issues.createdAt));
+}
+
+export async function listDecisionRows(projectId: string) {
+  const db = getDb();
+  return db
+    .select({
+      id: decisions.id,
+      title: decisions.title,
+      decision: decisions.decision,
+      reason: decisions.reason,
+      alternatives: decisions.alternatives,
+      impact: decisions.impact,
+      status: decisions.status,
+      createdBy: decisions.createdBy,
+      version: decisions.version,
+      createdAt: decisions.createdAt,
+    })
+    .from(decisions)
+    .where(and(eq(decisions.projectId, projectId), isNull(decisions.deletedAt)))
+    .orderBy(desc(decisions.updatedAt));
+}
+
+export async function listProposalRows(projectId: string) {
+  const db = getDb();
+  return db
+    .select({
+      id: proposals.id,
+      kind: proposals.kind,
+      title: proposals.title,
+      reason: proposals.reason,
+      description: proposals.description,
+      impact: proposals.impact,
+      status: proposals.status,
+      relatedTaskId: proposals.relatedTaskId,
+      version: proposals.version,
+      createdAt: proposals.createdAt,
+    })
+    .from(proposals)
+    .where(eq(proposals.projectId, projectId))
+    .orderBy(desc(proposals.createdAt));
+}
+
+export async function listCheckpointRows(projectId: string) {
+  const db = getDb();
+  const rows = await db
+    .select({
+      c: checkpoints,
+      agentName: agents.name,
+    })
+    .from(checkpoints)
+    .leftJoin(agents, eq(agents.id, checkpoints.agentId))
+    .where(and(eq(checkpoints.projectId, projectId), isNull(checkpoints.deletedAt)))
+    .orderBy(desc(checkpoints.createdAt));
+  return rows.map((r) => ({ ...r.c, agentName: r.agentName }));
 }

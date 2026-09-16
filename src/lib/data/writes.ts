@@ -2,21 +2,32 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import { getDb, type Db } from "@/lib/db/client";
 import {
   branches,
+  checkpoints,
+  decisions,
+  issues,
   northStars,
   phases,
   projects,
+  proposals,
   tasks,
   type Branch,
+  type Checkpoint,
+  type Decision,
+  type Issue,
   type NorthStar,
   type Phase,
   type Project,
+  type Proposal,
   type Task,
 } from "@/lib/db/schema";
 import { logActivity, type Actor } from "@/lib/core/audit";
 import {
   assertTransit,
   BRANCH_TRANSITIONS,
+  DECISION_TRANSITIONS,
+  ISSUE_TRANSITIONS,
   PHASE_TRANSITIONS,
+  PROPOSAL_TRANSITIONS,
   TASK_TRANSITIONS,
 } from "@/lib/core/state-machines";
 
@@ -518,4 +529,289 @@ export async function assertProjectExists(projectId: string): Promise<Project> {
     .where(and(eq(projects.id, projectId), isNull(projects.deletedAt)));
   if (!p) throw new NotFoundError("Project");
   return p;
+}
+
+// ───────────────────────── Issue ─────────────────────────
+export interface IssueCreate {
+  projectId: string;
+  title: string;
+  description?: string | null;
+  severity?: Issue["severity"];
+  source?: string | null;
+  relatedPhaseId?: string | null;
+  relatedTaskId?: string | null;
+  relatedBranchId?: string | null;
+}
+
+export async function createIssue(actor: Actor, input: IssueCreate): Promise<Issue> {
+  const db = getDb();
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .insert(issues)
+      .values({
+        projectId: input.projectId,
+        title: input.title,
+        description: input.description ?? null,
+        severity: input.severity ?? "MEDIUM",
+        source: input.source ?? null,
+        relatedPhaseId: input.relatedPhaseId ?? null,
+        relatedTaskId: input.relatedTaskId ?? null,
+        relatedBranchId: input.relatedBranchId ?? null,
+        createdById: actor.actorId ?? null,
+      })
+      .returning();
+    await logActivity(tx, {
+      projectId: input.projectId,
+      actor,
+      action: "ISSUE_CREATED",
+      entityType: "issue",
+      entityId: row.id,
+      summary: `创建 Issue「${row.title}」(${row.severity})`,
+      after: { title: row.title, severity: row.severity },
+    });
+    return row;
+  });
+}
+
+export async function setIssueStatus(
+  actor: Actor,
+  id: string,
+  to: Issue["status"],
+  resolution?: string,
+): Promise<Issue> {
+  const db = getDb();
+  return db.transaction(async (tx) => {
+    const [cur] = await tx.select().from(issues).where(eq(issues.id, id));
+    if (!cur) throw new NotFoundError("Issue");
+    assertTransit("Issue", ISSUE_TRANSITIONS, cur.status, to);
+    const [row] = await tx
+      .update(issues)
+      .set({
+        status: to,
+        resolution: to === "RESOLVED" || to === "WONT_FIX" ? (resolution ?? cur.resolution) : cur.resolution,
+        resolvedAt: to === "RESOLVED" || to === "WONT_FIX" ? new Date() : cur.resolvedAt,
+        version: sql`${issues.version} + 1`,
+        updatedAt: new Date(),
+      })
+      .where(eq(issues.id, id))
+      .returning();
+    await logActivity(tx, {
+      projectId: cur.projectId,
+      actor,
+      action: to === "RESOLVED" || to === "WONT_FIX" ? "ISSUE_RESOLVED" : "ISSUE_STATUS",
+      entityType: "issue",
+      entityId: row.id,
+      summary: `Issue「${row.title}」${cur.status} → ${to}`,
+      before: { status: cur.status },
+      after: { status: to, resolution: row.resolution },
+    });
+    return row;
+  });
+}
+
+// ───────────────────────── Decision ─────────────────────────
+export interface DecisionCreate {
+  projectId: string;
+  title: string;
+  decision: string;
+  reason?: string | null;
+  alternatives?: string | null;
+  impact?: string | null;
+  createdByLabel?: string;
+}
+
+export async function createDecision(actor: Actor, input: DecisionCreate): Promise<Decision> {
+  const db = getDb();
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .insert(decisions)
+      .values({
+        projectId: input.projectId,
+        title: input.title,
+        decision: input.decision,
+        reason: input.reason ?? null,
+        alternatives: input.alternatives ?? null,
+        impact: input.impact ?? null,
+        status: "PROPOSED",
+        createdBy: input.createdByLabel ?? actor.actorLabel ?? null,
+      })
+      .returning();
+    await logActivity(tx, {
+      projectId: input.projectId,
+      actor,
+      action: "DECISION_CREATED",
+      entityType: "decision",
+      entityId: row.id,
+      summary: `提出 Decision「${row.title}」`,
+      after: { title: row.title },
+    });
+    return row;
+  });
+}
+
+export async function decideDecision(
+  actor: Actor,
+  id: string,
+  to: Decision["status"],
+): Promise<Decision> {
+  const db = getDb();
+  return db.transaction(async (tx) => {
+    const [cur] = await tx.select().from(decisions).where(eq(decisions.id, id));
+    if (!cur) throw new NotFoundError("Decision");
+    assertTransit("Decision", DECISION_TRANSITIONS, cur.status, to);
+    const [row] = await tx
+      .update(decisions)
+      .set({
+        status: to,
+        approvedAt: to === "APPROVED" ? new Date() : cur.approvedAt,
+        version: sql`${decisions.version} + 1`,
+        updatedAt: new Date(),
+      })
+      .where(eq(decisions.id, id))
+      .returning();
+    await logActivity(tx, {
+      projectId: cur.projectId,
+      actor,
+      action: to === "APPROVED" ? "DECISION_APPROVED" : "DECISION_STATUS",
+      entityType: "decision",
+      entityId: row.id,
+      summary: `Decision「${row.title}」${cur.status} → ${to}`,
+      before: { status: cur.status },
+      after: { status: to },
+    });
+    return row;
+  });
+}
+
+// ───────────────────────── Proposal (+ Parking Lot) ─────────────────────────
+export interface ProposalCreate {
+  projectId: string;
+  kind?: Proposal["kind"];
+  title: string;
+  reason?: string | null;
+  description?: string | null;
+  impact?: string | null;
+  relatedTaskId?: string | null;
+}
+
+export async function createProposal(actor: Actor, input: ProposalCreate): Promise<Proposal> {
+  const db = getDb();
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .insert(proposals)
+      .values({
+        projectId: input.projectId,
+        kind: input.kind ?? "OTHER",
+        title: input.title,
+        reason: input.reason ?? null,
+        description: input.description ?? null,
+        impact: input.impact ?? null,
+        relatedTaskId: input.relatedTaskId ?? null,
+        createdByType: actor.actorType === "AGENT" ? "AGENT" : "HUMAN",
+        createdById: actor.actorId ?? null,
+      })
+      .returning();
+    await logActivity(tx, {
+      projectId: input.projectId,
+      actor,
+      action: "PROPOSAL_CREATED",
+      entityType: "proposal",
+      entityId: row.id,
+      summary: `提交提案「${row.title}」(${row.kind})`,
+      after: { title: row.title, kind: row.kind },
+    });
+    return row;
+  });
+}
+
+export async function decideProposal(
+  actor: Actor,
+  id: string,
+  to: Proposal["status"],
+): Promise<Proposal> {
+  const db = getDb();
+  return db.transaction(async (tx) => {
+    const [cur] = await tx.select().from(proposals).where(eq(proposals.id, id));
+    if (!cur) throw new NotFoundError("Proposal");
+    assertTransit("Proposal", PROPOSAL_TRANSITIONS, cur.status, to);
+    const [row] = await tx
+      .update(proposals)
+      .set({
+        status: to,
+        decidedBy: actor.actorType === "HUMAN" ? actor.actorId ?? null : cur.decidedBy,
+        decidedAt: new Date(),
+        version: sql`${proposals.version} + 1`,
+        updatedAt: new Date(),
+      })
+      .where(eq(proposals.id, id))
+      .returning();
+    await logActivity(tx, {
+      projectId: cur.projectId,
+      actor,
+      action:
+        to === "APPROVED" ? "PROPOSAL_APPROVED" : to === "REJECTED" ? "PROPOSAL_REJECTED" : "PROPOSAL_STATUS",
+      entityType: "proposal",
+      entityId: row.id,
+      summary: `提案「${row.title}」${cur.status} → ${to}`,
+      before: { status: cur.status },
+      after: { status: to },
+    });
+    return row;
+  });
+}
+
+// ───────────────────────── Checkpoint (append-only snapshot) ─────────────────────────
+export interface CheckpointCreate {
+  projectId: string;
+  summary: string;
+  taskId?: string | null;
+  branchId?: string | null;
+  agentId?: string | null;
+  sessionId?: string | null;
+  completedItems?: string[];
+  unfinishedItems?: string[];
+  newIssues?: string[];
+  newDecisions?: string[];
+  newBranches?: string[];
+  currentStatus?: string | null;
+  nextAction?: string | null;
+}
+
+export async function createCheckpoint(
+  actor: Actor,
+  input: CheckpointCreate,
+): Promise<Checkpoint> {
+  const db = getDb();
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .insert(checkpoints)
+      .values({
+        projectId: input.projectId,
+        summary: input.summary,
+        taskId: input.taskId ?? null,
+        branchId: input.branchId ?? null,
+        agentId: input.agentId ?? null,
+        sessionId: input.sessionId ?? null,
+        completedItems: input.completedItems ?? [],
+        unfinishedItems: input.unfinishedItems ?? [],
+        newIssues: input.newIssues ?? [],
+        newDecisions: input.newDecisions ?? [],
+        newBranches: input.newBranches ?? [],
+        currentStatus: input.currentStatus ?? null,
+        nextAction: input.nextAction ?? null,
+        createdByType: actor.actorType === "AGENT" ? "AGENT" : "HUMAN",
+        createdById: actor.actorId ?? null,
+      })
+      .returning();
+    await logActivity(tx, {
+      projectId: input.projectId,
+      actor,
+      action: "CHECKPOINT_CREATED",
+      entityType: "checkpoint",
+      entityId: row.id,
+      summary: `Checkpoint：${row.summary.slice(0, 60)}`,
+      after: { completed: row.completedItems.length, unfinished: row.unfinishedItems.length },
+    });
+    return row;
+  });
 }
