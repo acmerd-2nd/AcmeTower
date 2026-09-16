@@ -34,6 +34,7 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260916.1",
+    "@modelcontextprotocol/client": "^2.0.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/pg": "^8.23.1",
