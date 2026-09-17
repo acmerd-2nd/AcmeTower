@@ -8,11 +8,19 @@ import {
   revokeCredentialAction,
 } from "@/lib/actions/credentials";
 import {
+  agentPermissionAction,
+  agentToggleAction,
+  attachAgentAction,
+  createAgentAction,
+  unbindAgentAction,
+} from "@/lib/actions/agents";
+import {
   credentialStatus,
   listCredentials,
   projectAgentOptions,
   type CredentialStatus,
 } from "@/lib/data/credentials";
+import { listProjectAgents, unboundAgents } from "@/lib/data/agents";
 
 export const dynamic = "force-dynamic";
 
@@ -50,6 +58,12 @@ const PERMISSIONS = [
   { value: "STRUCTURAL_WRITE", label: "STRUCTURAL_WRITE — 结构写入（可回收分支、提交提案）" },
 ];
 
+const AGENT_PERM = [
+  { value: "READ", label: "READ" },
+  { value: "WORKING_WRITE", label: "WORKING_WRITE" },
+  { value: "STRUCTURAL_WRITE", label: "STRUCTURAL_WRITE" },
+];
+
 export default async function AgentsPage({
   params,
   searchParams,
@@ -59,9 +73,11 @@ export default async function AgentsPage({
 }) {
   const { projectId } = await params;
   const { error } = await searchParams;
-  const [creds, agentOpts, jar] = await Promise.all([
+  const [creds, agentOpts, boundAgents, attachable, jar] = await Promise.all([
     listCredentials(projectId),
     projectAgentOptions(projectId),
+    listProjectAgents(projectId),
+    unboundAgents(projectId),
     cookies(),
   ]);
 
@@ -121,6 +137,91 @@ export default async function AgentsPage({
           </p>
         </div>
       )}
+
+      {/* Agents in this project */}
+      <div className="mt-6">
+        <div className="text-sm font-medium">Agents（本项目）</div>
+        <p className="mt-0.5 text-xs text-zinc-500">Agent 是平台实体；在此创建、绑定到本项目并授予权限（§26–§29，GOVERNANCE 仅人类）。</p>
+
+        <ul className="mt-2 space-y-2">
+          {boundAgents.map((a) => (
+            <li key={a.agentId} className={`rounded-xl border p-3 ${a.enabled ? "border-zinc-200 dark:border-zinc-800" : "border-zinc-100 opacity-60 dark:border-zinc-800/60"}`}>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">{a.name}</span>
+                    <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${PERM_STYLE[a.permissionLevel] ?? ""}`}>{a.permissionLevel}</span>
+                    {!a.enabled && <span className="text-xs text-zinc-400">已停用</span>}
+                  </div>
+                  <div className="mt-0.5 text-xs text-zinc-500">
+                    {a.provider ? `${a.provider} · ` : ""}
+                    {a.bindingRole || a.role || "—"}
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <form action={agentPermissionAction} className="flex items-center gap-1">
+                    <input type="hidden" name="projectId" value={projectId} />
+                    <input type="hidden" name="agentId" value={a.agentId} />
+                    <select name="permission" defaultValue={a.permissionLevel} className="rounded-md border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-950">
+                      {AGENT_PERM.map((o) => (
+                        <option key={o.value} value={o.value}>{o.label}</option>
+                      ))}
+                    </select>
+                    <button type="submit" className="rounded-md border border-zinc-300 px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">设权限</button>
+                  </form>
+                  <ActionButton
+                    label={a.enabled ? "停用" : "启用"}
+                    action={agentToggleAction}
+                    fields={[
+                      { name: "projectId", value: projectId },
+                      { name: "agentId", value: a.agentId },
+                      { name: "enabled", value: String(a.enabled) },
+                    ]}
+                  />
+                  <ActionButton
+                    tone="danger"
+                    label="解绑"
+                    action={unbindAgentAction}
+                    fields={[
+                      { name: "projectId", value: projectId },
+                      { name: "agentId", value: a.agentId },
+                    ]}
+                  />
+                </div>
+              </div>
+            </li>
+          ))}
+          {boundAgents.length === 0 && <li className="text-sm text-zinc-400">还没有 Agent 绑定到本项目。</li>}
+        </ul>
+
+        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+          <form action={createAgentAction} className="rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 dark:border-zinc-800 dark:bg-zinc-900/40">
+            <input type="hidden" name="projectId" value={projectId} />
+            <div className="text-xs font-medium text-zinc-500">新建 Agent</div>
+            <div className="mt-2 grid gap-2">
+              <TextField name="name" label="名称 *" placeholder="Codex" required />
+              <TextField name="provider" label="Provider（可选）" placeholder="OpenAI / Anthropic …" />
+              <TextField name="role" label="角色（可选）" placeholder="Developer / Reviewer …" />
+              <SelectField name="permission" label="权限" options={AGENT_PERM} />
+              <Submit label="创建并绑定" />
+            </div>
+          </form>
+
+          <form action={attachAgentAction} className="rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 dark:border-zinc-800 dark:bg-zinc-900/40">
+            <input type="hidden" name="projectId" value={projectId} />
+            <div className="text-xs font-medium text-zinc-500">绑定已有 Agent 到本项目</div>
+            {attachable.length === 0 ? (
+              <p className="mt-3 text-sm text-zinc-400">没有可绑定的其它 Agent。</p>
+            ) : (
+              <div className="mt-2 grid gap-2">
+                <SelectField name="agentId" label="选择 Agent" options={attachable.map((a) => ({ value: a.id, label: a.provider ? `${a.name} · ${a.provider}` : a.name }))} required />
+                <SelectField name="permission" label="权限" options={AGENT_PERM} />
+                <Submit label="绑定" />
+              </div>
+            )}
+          </form>
+        </div>
+      </div>
 
       <div className="mt-6 rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
         <div className="text-sm font-medium">连接到统一 MCP Gateway</div>

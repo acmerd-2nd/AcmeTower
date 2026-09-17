@@ -18,7 +18,8 @@
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
     "db:seed": "tsx scripts/seed.ts",
-    "auth:create-admin": "tsx scripts/create-admin.ts"
+    "auth:create-admin": "tsx scripts/create-admin.ts",
+    "test:acceptance": "tsx scripts/acceptance.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "^2.0.0",
