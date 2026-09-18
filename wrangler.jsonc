@@ -3,7 +3,7 @@
   "name": "acmetower",
   "main": ".open-next/worker.js",
   "compatibility_date": "2026-09-16",
-  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "compatibility_flags": ["nodejs_compat"],
   "assets": {
     "directory": ".open-next/assets",
     "binding": "ASSETS"
@@ -11,7 +11,7 @@
   "hyperdrive": [
     {
       "binding": "HYPERDRIVE",
-      "id": "de28eb8f419743d98acefe32d9971f54"
+      "id": "315233c4d7af44e88cb82c8044323c3a"
     }
   ]
 }

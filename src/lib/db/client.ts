@@ -51,10 +51,15 @@ export function getDb() {
     const sql = postgres(
       url,
       viaHyperdrive
-        ? // Hyperdrive multiplexes many client connections onto a small DB pool, so
-          // we must allow >1 per isolate — getProjectSpace fires ~10 parallel queries
-          // and a max:1 pool deadlocks the request (Workers cancels a hung worker).
-          { max: 20, idle_timeout: 20, connect_timeout: 15, prepare: false }
+        ? // Over Hyperdrive, keep a SMALL per-isolate pool: Hyperdrive itself pools and
+          // multiplexes client connections onto the origin, and it queues additional
+          // requests internally. A large per-isolate pool (e.g. 20) makes every warm
+          // isolate open many TCP/Postgres setups at once, which intermittently stalls
+          // awaiting a connection → workerd cancels the request (HTTP 1101). postgres.js
+          // queues beyond `max` (it serializes, it does not deadlock), so a small pool is
+          // both correct and safe. prepare:false because Hyperdrive/the pooler forbid
+          // server-side prepared statements.
+          { max: 2, idle_timeout: 20, connect_timeout: 8, max_lifetime: 4 * 60 * 60, prepare: false }
         : { max: 5, idle_timeout: 20, connect_timeout: 15, ssl: { require: true } },
     );
     pool.__acmetowerSql = sql;
