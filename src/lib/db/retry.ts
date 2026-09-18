@@ -23,7 +23,7 @@ export async function withDbRetry<T>(
   run: () => Promise<T>,
   opts: { timeoutMs?: number; attempts?: number; label?: string } = {},
 ): Promise<T> {
-  const { timeoutMs = 3500, attempts = 4, label = "db" } = opts;
+  const { timeoutMs = 2500, attempts = 6, label = "db" } = opts;
   let lastErr: unknown;
   for (let a = 0; a < attempts; a++) {
     let timer: ReturnType<typeof setTimeout> | undefined;

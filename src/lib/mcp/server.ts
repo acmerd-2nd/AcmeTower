@@ -99,9 +99,13 @@ async function serveMessage(msg: Json, principal: McpPrincipal, tools: McpToolSp
         });
       }
       try {
-        const data = spec.readOnly
-          ? await withDbRetry(() => spec.run(parsedArgs, principal), { label: name })
-          : await spec.run(parsedArgs, principal); // writes run once: a client deadline does not roll back a committed txn, so retry could double-apply
+        // Reads retry generously. Writes retry with fewer attempts to cap the rare
+        // chance an abandoned-but-later-committed attempt duplicates a create;
+        // updates stay safe because the optimistic version guard rejects a stale retry.
+        const data = await withDbRetry(() => spec.run(parsedArgs, principal), {
+          label: name,
+          ...(spec.readOnly ? {} : { attempts: 3 }),
+        });
         return rpcResult(id, { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] });
       } catch (e) {
         return rpcResult(id, { content: [{ type: "text", text: `${name} failed: ${(e as Error).message ?? "error"}` }], isError: true });

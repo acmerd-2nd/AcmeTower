@@ -51,15 +51,13 @@ export function getDb() {
     const sql = postgres(
       url,
       viaHyperdrive
-        ? // Over Hyperdrive, keep a SMALL per-isolate pool: Hyperdrive itself pools and
-          // multiplexes client connections onto the origin, and it queues additional
-          // requests internally. A large per-isolate pool (e.g. 20) makes every warm
-          // isolate open many TCP/Postgres setups at once, which intermittently stalls
-          // awaiting a connection → workerd cancels the request (HTTP 1101). postgres.js
-          // queues beyond `max` (it serializes, it does not deadlock), so a small pool is
-          // both correct and safe. prepare:false because Hyperdrive/the pooler forbid
-          // server-side prepared statements.
-          { max: 2, idle_timeout: 20, connect_timeout: 8, max_lifetime: 4 * 60 * 60, prepare: false }
+        ? // Hyperdrive terminates TLS + pools onto the origin (Supabase DIRECT
+          // Postgres, higher max_connections). Size the per-isolate pool for our
+          // highest-fan-out reads (project_get_context fires ~10 concurrent queries):
+          // too small serializes them onto a couple of conns and trips the query
+          // deadline (503); too big starves a constrained pooler. 6 is a good middle.
+          // prepare:false because prepared statements are unsafe across pooled hops.
+          { max: 6, idle_timeout: 20, connect_timeout: 8, max_lifetime: 4 * 60 * 60, prepare: false }
         : { max: 5, idle_timeout: 20, connect_timeout: 15, ssl: { require: true } },
     );
     pool.__acmetowerSql = sql;
