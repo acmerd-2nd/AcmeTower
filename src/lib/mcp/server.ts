@@ -20,7 +20,6 @@
  * already resolved by the route.
  */
 import { z } from "zod";
-import { withDbRetry } from "@/lib/db/retry";
 import { hasPermission, type McpPrincipal } from "@/lib/mcp/principal";
 import type { McpToolSpec } from "@/lib/mcp/tools";
 
@@ -99,13 +98,9 @@ async function serveMessage(msg: Json, principal: McpPrincipal, tools: McpToolSp
         });
       }
       try {
-        // Reads retry generously. Writes retry with fewer attempts to cap the rare
-        // chance an abandoned-but-later-committed attempt duplicates a create;
-        // updates stay safe because the optimistic version guard rejects a stale retry.
-        const data = await withDbRetry(() => spec.run(parsedArgs, principal), {
-          label: name,
-          ...(spec.readOnly ? {} : { attempts: 3 }),
-        });
+        // Tool DB access is now HTTPS/PostgREST: reads retry inside lib/mcp/rest.ts,
+        // writes run exactly once (non-idempotent). No outer retry layer.
+        const data = await spec.run(parsedArgs, principal);
         return rpcResult(id, { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] });
       } catch (e) {
         return rpcResult(id, { content: [{ type: "text", text: `${name} failed: ${(e as Error).message ?? "error"}` }], isError: true });

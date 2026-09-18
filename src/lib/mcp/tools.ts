@@ -2,28 +2,24 @@
  * MCP tool registry + wiring (v0.1设计文档 §32–§41).
  *
  * One source of truth for every MCP tool. Each declares the minimum PermissionLevel
- * it needs (§29); the gateway registers only the tools a principal's level allows
- * (so tools/list itself reflects the auth chain), and every handler re-checks both
- * the permission AND cross-project ownership (§36) before delegating to the SAME
- * shared write layer the web UI uses — App Logic → Permission → Validation, audit
- * with source=MCP. No tool ever writes the DB directly.
+ * it needs (§29); the gateway only registers (and re-checks) the tools the
+ * principal's level allows, and every handler re-checks cross-project ownership
+ * (§36) before delegating to the SAME App Logic → Permission → Validation chain the
+ * web UI uses — but reached over the HTTPS path (lib/mcp/httpdata.ts reads,
+ * db/mcp_rpc.sql writes via lib/mcp/httpwrite.ts). No tool ever writes the DB
+ * directly, and /mcp never touches the worker's flaky Hyperdrive TCP tunnel.
  *
  * GOVERNANCE (§29) is deliberately absent: North-Star edits, Decision approvals,
  * phase/scope changes and archiving stay human-only; an agent that wants those
  * files a Proposal instead (§39).
  */
 import { z } from "zod";
-import { and, eq } from "drizzle-orm";
 import type { CallToolResult, McpServer } from "@modelcontextprotocol/server";
-import { getDb } from "@/lib/db/client";
 import {
-  branches,
   issueStatus,
-  northStars,
   proposalKind,
   taskPriority,
   taskStatus,
-  tasks,
   type Branch,
   type Checkpoint,
   type Issue,
@@ -31,28 +27,28 @@ import {
   type Task,
 } from "@/lib/db/schema";
 import {
-  listBranchRows,
-  listCheckpointRows,
-  listDecisionRows,
-  listIssueRows,
-  listPhaseRows,
-  listTaskRows,
-} from "@/lib/data/reads";
-import { getProjectSpace } from "@/lib/data/project";
+  httpBranchRows,
+  httpCheckpointRows,
+  httpDecisionRows,
+  httpIssueRows,
+  httpNorthStar,
+  httpPhaseRows,
+  httpProjectSpace,
+  httpTaskListRows,
+  httpTaskRow,
+} from "@/lib/mcp/httpdata";
 import {
-  closeBranch,
-  createBranch,
-  createCheckpoint,
-  createIssue,
-  createProposal,
-  setBranchStatus,
-  setTaskStatus,
-  updateTask,
-} from "@/lib/data/writes";
+  httpCloseBranch,
+  httpCreateBranch,
+  httpCreateCheckpoint,
+  httpCreateIssue,
+  httpCreateProposal,
+  httpSetBranchStatus,
+  httpSetTaskStatus,
+  httpUpdateTask,
+} from "@/lib/mcp/httpwrite";
 import {
   hasPermission,
-  mcpActor,
-  principalFromCtx,
   type McpPrincipal,
   type PermissionLevel,
 } from "@/lib/mcp/principal";
@@ -74,14 +70,7 @@ export interface McpToolSpec {
   run: (args: any, principal: McpPrincipal) => Promise<Json>;
 }
 
-function text(data: Json): CallToolResult {
-  return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
-}
-function fail(message: string): CallToolResult {
-  return { content: [{ type: "text", text: message }], isError: true };
-}
-
-// ── row → snake_case mappers ────────────────────────────────
+// ── row → snake_case mappers (consume the camel shapes httpdata produces) ─────
 const taskSummary = (t: Task): Json => ({
   id: t.id, name: t.name, status: t.status, progress: t.progress, priority: t.priority,
   purpose: t.purpose, success_criteria: t.successCriteria, description: t.description,
@@ -134,7 +123,7 @@ export const MCP_TOOLS: McpToolSpec[] = [
     description: "The authorized project's core record (name, status, health, version, current pointers).",
     input: z.object({}),
     async run(_a, p) {
-      const s = await getProjectSpace(p.projectId);
+      const s = await httpProjectSpace(p.projectId);
       if (!s) throw new NotFoundError("Project");
       const g = s.project;
       return {
@@ -149,7 +138,7 @@ export const MCP_TOOLS: McpToolSpec[] = [
     description: "The flagship read: everything needed to safely resume — project, North Star, current position (phase/task/branch), current mission, recent decisions / open issues / checkpoints. §34.",
     input: z.object({}),
     async run(_a, p) {
-      const s = await getProjectSpace(p.projectId);
+      const s = await httpProjectSpace(p.projectId);
       if (!s) throw new NotFoundError("Project");
       return {
         project: { id: s.project.id, name: s.project.name, status: s.project.status, health: s.project.health },
@@ -177,7 +166,7 @@ export const MCP_TOOLS: McpToolSpec[] = [
     description: "The project's governance truth: final goal, deliverable, success criteria, non-goals, constraints.",
     input: z.object({}),
     async run(_a, p) {
-      const [n] = await getDb().select().from(northStars).where(eq(northStars.projectId, p.projectId));
+      const n = await httpNorthStar(p.projectId);
       if (!n) return { north_star: null };
       return {
         north_star: {
@@ -192,8 +181,8 @@ export const MCP_TOOLS: McpToolSpec[] = [
     description: "Ordered phases with their status/scope/goal and the tasks inside each.",
     input: z.object({}),
     async run(_a, p) {
-      const ph = await listPhaseRows(p.projectId);
-      const ts = await listTaskRows(p.projectId);
+      const ph = await httpPhaseRows(p.projectId);
+      const ts = await httpTaskListRows(p.projectId);
       const byPhase = new Map<string, Json[]>();
       for (const t of ts) {
         let arr = byPhase.get(t.phaseId);
@@ -214,7 +203,7 @@ export const MCP_TOOLS: McpToolSpec[] = [
     description: "The dynamically assembled current work context: objective, success criteria, current state, do-not rules, return-to, next action. §35.",
     input: z.object({}),
     async run(_a, p) {
-      const s = await getProjectSpace(p.projectId);
+      const s = await httpProjectSpace(p.projectId);
       if (!s) throw new NotFoundError("Project");
       return {
         mission: s.mission,
@@ -231,7 +220,7 @@ export const MCP_TOOLS: McpToolSpec[] = [
     description: "Read one task in full. Refuses if it is not in this token's project.",
     input: z.object({ task_id: uuid() }),
     async run(a, p) {
-      const [row] = await getDb().select().from(tasks).where(and(eq(tasks.id, a.task_id), eq(tasks.projectId, p.projectId)));
+      const row = await httpTaskRow(p.projectId, a.task_id);
       if (!row) throw new NotFoundError("Task");
       return { task: taskSummary(row) };
     },
@@ -241,7 +230,7 @@ export const MCP_TOOLS: McpToolSpec[] = [
     description: "Read one branch (source, reason, goal, return point, status).",
     input: z.object({ branch_id: uuid() }),
     async run(a, p) {
-      const rows = await listBranchRows(p.projectId);
+      const rows = await httpBranchRows(p.projectId);
       const row = rows.find((b) => b.id === a.branch_id);
       if (!row) throw new NotFoundError("Branch");
       return { branch: row };
@@ -252,7 +241,7 @@ export const MCP_TOOLS: McpToolSpec[] = [
     description: "Decision log (newest first), optionally filtered by status.",
     input: z.object({ status: z.string().optional().describe("PROPOSED | APPROVED | REJECTED | SUPERSEDED") }),
     async run(a, p) {
-      const rows = await listDecisionRows(p.projectId);
+      const rows = await httpDecisionRows(p.projectId);
       const use = a.status ? rows.filter((d) => d.status === a.status) : rows;
       return { decisions: use.map((d) => ({
         id: d.id, title: d.title, decision: d.decision, reason: d.reason, alternatives: d.alternatives,
@@ -266,7 +255,7 @@ export const MCP_TOOLS: McpToolSpec[] = [
     input: z.object({}),
     async run(_a, p) {
       const open = new Set<string>((issueStatus.enumValues as readonly string[]).filter((s) => s === "OPEN" || s === "IN_PROGRESS"));
-      const rows = (await listIssueRows(p.projectId)).filter((i) => open.has(i.status as string));
+      const rows = (await httpIssueRows(p.projectId)).filter((i) => open.has(i.status as string));
       return { issues: rows.map(issueSummary) };
     },
   },
@@ -275,7 +264,7 @@ export const MCP_TOOLS: McpToolSpec[] = [
     description: "Latest work snapshots (newest first), limited.",
     input: z.object({ limit: z.number().int().min(1).max(50).default(5) }),
     async run(a, p) {
-      const rows = await listCheckpointRows(p.projectId);
+      const rows = await httpCheckpointRows(p.projectId);
       return { checkpoints: rows.slice(0, a.limit ?? 5).map((c) => checkpointSummary(c)) };
     },
   },
@@ -308,21 +297,17 @@ export const MCP_TOOLS: McpToolSpec[] = [
     }),
     async run(a, p) {
       await assertOwned("task", a.task_id, p);
-      const actor = mcpActor(p);
       const patch: Record<string, unknown> = {};
       if (a.progress != null) patch.progress = a.progress;
       if (a.name != null) patch.name = a.name;
       if (a.purpose !== undefined) patch.purpose = a.purpose;
-      if (a.success_criteria !== undefined) patch.successCriteria = a.success_criteria;
+      if (a.success_criteria !== undefined) patch.success_criteria = a.success_criteria;
       if (a.description !== undefined) patch.description = a.description;
       if (a.priority != null) patch.priority = a.priority;
-      let row: Task | undefined;
-      if (Object.keys(patch).length) row = await updateTask(actor, a.task_id, patch as never, a.expected_version);
-      if (a.status) row = await setTaskStatus(actor, a.task_id, a.status);
-      if (!row) {
-        const fresh = await getDb().select().from(tasks).where(eq(tasks.id, a.task_id));
-        row = fresh[0];
-      }
+      let row: Task | null = null;
+      if (Object.keys(patch).length) row = await httpUpdateTask(p, a.task_id, patch, a.expected_version);
+      if (a.status) row = await httpSetTaskStatus(p, a.task_id, a.status);
+      if (!row) row = await httpTaskRow(p.projectId, a.task_id);
       if (!row) throw new NotFoundError("Task");
       return taskSummary(row);
     },
@@ -333,7 +318,7 @@ export const MCP_TOOLS: McpToolSpec[] = [
     input: z.object({ branch_id: uuid(), status: z.enum(["IN_PROGRESS", "BLOCKED", "RESOLVED", "ABANDONED"] as const) }),
     async run(a, p) {
       await assertOwned("branch", a.branch_id, p);
-      return branchSummary(await setBranchStatus(mcpActor(p), a.branch_id, a.status));
+      return branchSummary(await httpSetBranchStatus(p, a.branch_id, a.status));
     },
   },
   {
@@ -349,9 +334,10 @@ export const MCP_TOOLS: McpToolSpec[] = [
       related_branch_id: z.string().uuid().nullish(),
     }),
     async run(a, p) {
-      const row = await createIssue(mcpActor(p), {
-        projectId: p.projectId, title: a.title, description: a.description, severity: a.severity,
-        source: a.source, relatedTaskId: a.related_task_id ?? null, relatedPhaseId: a.related_phase_id ?? null, relatedBranchId: a.related_branch_id ?? null,
+      const row = await httpCreateIssue(p, {
+        title: a.title, description: a.description ?? null, severity: a.severity ?? null,
+        source: a.source ?? null, relatedTaskId: a.related_task_id ?? null,
+        relatedPhaseId: a.related_phase_id ?? null, relatedBranchId: a.related_branch_id ?? null,
       });
       return issueSummary(row);
     },
@@ -374,11 +360,11 @@ export const MCP_TOOLS: McpToolSpec[] = [
     async run(a, p) {
       if (a.task_id) await assertOwned("task", a.task_id, p);
       if (a.branch_id) await assertOwned("branch", a.branch_id, p);
-      const row = await createCheckpoint(mcpActor(p), {
-        projectId: p.projectId, summary: a.summary, taskId: a.task_id ?? null, branchId: a.branch_id ?? null,
-        agentId: p.agentId, completedItems: a.completed_items, unfinishedItems: a.unfinished_items,
+      const row = await httpCreateCheckpoint(p, {
+        summary: a.summary, taskId: a.task_id ?? null, branchId: a.branch_id ?? null,
+        completedItems: a.completed_items, unfinishedItems: a.unfinished_items,
         newIssues: a.new_issues, newDecisions: a.new_decisions, newBranches: a.new_branches,
-        currentStatus: a.current_status, nextAction: a.next_action,
+        currentStatus: a.current_status ?? null, nextAction: a.next_action ?? null,
       });
       return checkpointSummary(row);
     },
@@ -399,9 +385,9 @@ export const MCP_TOOLS: McpToolSpec[] = [
       return_point_id: uuid(),
     }),
     async run(a, p) {
-      const row = await createBranch(mcpActor(p), {
-        projectId: p.projectId, sourceType: a.source_type, sourceId: a.source_id, name: a.name,
-        reason: a.reason, goal: a.goal, successCriteria: a.success_criteria,
+      const row = await httpCreateBranch(p, {
+        sourceType: a.source_type, sourceId: a.source_id, name: a.name,
+        reason: a.reason, goal: a.goal, successCriteria: a.success_criteria ?? null,
         returnPointType: a.return_point_type, returnPointId: a.return_point_id,
       });
       return branchSummary(row);
@@ -413,7 +399,7 @@ export const MCP_TOOLS: McpToolSpec[] = [
     input: z.object({ branch_id: uuid(), resolution: z.string().min(1).describe("结论 / 回收说明") }),
     async run(a, p) {
       await assertOwned("branch", a.branch_id, p);
-      return branchSummary(await closeBranch(mcpActor(p), a.branch_id, a.resolution));
+      return branchSummary(await httpCloseBranch(p, a.branch_id, a.resolution));
     },
   },
   {
@@ -429,16 +415,20 @@ export const MCP_TOOLS: McpToolSpec[] = [
     }),
     async run(a, p) {
       if (a.related_task_id) await assertOwned("task", a.related_task_id, p);
-      const row = await createProposal(mcpActor(p), {
-        projectId: p.projectId, title: a.title, kind: a.kind, reason: a.reason,
-        description: a.description, impact: a.impact, relatedTaskId: a.related_task_id ?? null,
+      const row = await httpCreateProposal(p, {
+        title: a.title, kind: a.kind ?? null, reason: a.reason ?? null,
+        description: a.description ?? null, impact: a.impact ?? null, relatedTaskId: a.related_task_id ?? null,
       });
       return { ...proposalSummary(row), note: "已提交为 PENDING，等待人类在 Web 端批准/拒绝" };
     },
   },
 ];
 
-/** Register only the tools this principal's permission level allows onto a server. */
+/**
+ * @deprecated Legacy SDK registration path, kept only so the type surface is
+ * stable; the stateless gateway (lib/mcp/server.ts) filters tools via
+ * allowedTools()/MCP_TOOLS directly and never registers onto an McpServer.
+ */
 export function registerTools(server: McpServer, principal: McpPrincipal): void {
   for (const spec of MCP_TOOLS) {
     if (!hasPermission(principal.permissionLevel, spec.required)) continue; // chain: Tool ← Permission
@@ -450,15 +440,15 @@ export function registerTools(server: McpServer, principal: McpPrincipal): void 
         inputSchema: spec.input,
         annotations: { readOnlyHint: spec.readOnly, destructiveHint: false, idempotentHint: spec.readOnly, openWorldHint: false },
       },
-      async (args, ctx) => {
-        const p = principalFromCtx(ctx) ?? principal; // defense: prefer live ctx
-        if (!hasPermission(p.permissionLevel, spec.required)) {
-          return fail(`insufficient permission: ${spec.name} requires ${spec.required}`);
+      async (args) => {
+        if (!hasPermission(principal.permissionLevel, spec.required)) {
+          return { content: [{ type: "text", text: `insufficient permission: ${spec.name} requires ${spec.required}` }], isError: true } as CallToolResult;
         }
         try {
-          return text(await spec.run(args, p));
+          const data = await spec.run(args, principal);
+          return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] } as CallToolResult;
         } catch (e) {
-          return fail(`${spec.name} failed: ${(e as Error).message ?? "error"}`);
+          return { content: [{ type: "text", text: `${spec.name} failed: ${(e as Error).message ?? "error"}` }], isError: true } as CallToolResult;
         }
       },
     );

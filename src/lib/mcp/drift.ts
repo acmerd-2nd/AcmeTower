@@ -7,10 +7,7 @@
  * is about to do, it answers { risk, is_drift, reason, recommended_action } so the
  * agent can decide to CONTINUE, open a BRANCH, file a PROPOSAL, or ASK_HUMAN.
  */
-import { eq } from "drizzle-orm";
-import { getDb } from "@/lib/db/client";
-import { tasks, type Task } from "@/lib/db/schema";
-import { getProjectSpace } from "@/lib/data/project";
+import { httpProjectSpace, httpTaskRow } from "@/lib/mcp/httpdata";
 import { isUuid } from "@/lib/mcp/util";
 
 const STOP = new Set([
@@ -47,16 +44,15 @@ export async function assessDrift(
   projectId: string,
   input: { currentTask: string; proposedWork: string },
 ): Promise<DriftResult> {
-  const space = await getProjectSpace(projectId);
+  const space = await httpProjectSpace(projectId);
   const proposed = tokens(input.proposedWork);
 
   // Anchor = the current task/phase text. currentTask may be a task id or free text.
   const anchorParts: string[] = [];
   let currentPhaseName: string | null = null;
   if (isUuid(input.currentTask)) {
-    const [t] = await getDb().select().from(tasks).where(eq(tasks.id, input.currentTask));
-    const task: Task | undefined = t;
-    if (task && task.projectId === projectId) {
+    const task = await httpTaskRow(projectId, input.currentTask);
+    if (task) {
       anchorParts.push(task.name, task.purpose ?? "", task.successCriteria ?? "");
     }
   } else {
