@@ -6,7 +6,11 @@ import postgres from "postgres";
 import { Client } from "@modelcontextprotocol/client";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 
-for (const k of ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"]) delete process.env[k];
+// Keep HTTP(S)_PROXY when ACC_KEEP_PROXY=1 (e.g. pointing the MCP client at a
+// deployed URL from behind a system proxy); strip it for local-dev runs.
+if (!process.env.ACC_KEEP_PROXY) {
+  for (const k of ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"]) delete process.env[k];
+}
 const env: Record<string, string> = {};
 for (const l of readFileSync(".env.local", "utf8").split(/\r?\n/)) {
   const m = l.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)$/i);
