@@ -19,6 +19,7 @@ import {
   mapNorthStar,
   mapPhase,
   mapProject,
+  mapProposal,
   mapTask,
   s,
   type Row,
@@ -31,6 +32,7 @@ import type {
   NorthStar,
   Phase,
   Project,
+  Proposal,
   Task,
 } from "@/lib/db/schema";
 import type { CurrentMission, PhaseNode, ProjectSpace } from "@/lib/data/project";
@@ -93,6 +95,64 @@ export async function httpCheckpointRows(projectId: string): Promise<Array<Check
 export async function httpNorthStar(projectId: string): Promise<NorthStar | null> {
   const rows = await restSelect(`north_star`, `project_id=eq.${enc(projectId)}&limit=1`);
   return rows[0] ? mapNorthStar(rows[0]) : null;
+}
+
+export async function httpProposalRows(projectId: string): Promise<Proposal[]> {
+  const rows = await restSelect(`proposals`, `project_id=eq.${enc(projectId)}&order=created_at.desc`);
+  return rows.map(mapProposal);
+}
+
+// ───────────────────────── activity timeline ─────────────────────────
+// Mirrors lib/data/timeline.getTimeline (V0.3): project-scoped, optional source
+// filter, optional free-text q over summary/action, newest-first, bounded.
+
+export interface TimelineRow {
+  id: string;
+  actorType: string;
+  actorLabel: string | null;
+  source: string;
+  action: string;
+  entityType: string | null;
+  entityId: string | null;
+  summary: string | null;
+  before: unknown;
+  after: unknown;
+  createdAt: Date;
+}
+
+const OPEN_TL_SOURCE = new Set(["HUMAN", "WEB", "MCP", "SYSTEM"]);
+
+export async function httpTimeline(
+  projectId: string,
+  params: { source?: string; q?: string; limit?: number } = {},
+): Promise<TimelineRow[]> {
+  const preds = [`project_id=eq.${enc(projectId)}`];
+  const src = params.source;
+  if (src && src !== "ALL" && OPEN_TL_SOURCE.has(src)) preds.push(`source=eq.${enc(src)}`);
+  if (params.q?.trim()) {
+    const like = `*${params.q.trim()}*`;
+    preds.push(`or=(summary.ilike.${like},action.ilike.${like})`);
+  }
+  const limit = params.limit ?? 200;
+  preds.push(`order=created_at.desc`, `limit=${limit}`);
+  const rows = await restSelect(
+    `activity_events`,
+    preds.join("&"),
+    { columns: "id,actor_type,actor_label,source,action,entity_type,entity_id,summary,before,after,created_at" },
+  );
+  return rows.map((r) => ({
+    id: String(r.id),
+    actorType: String(r.actor_type),
+    actorLabel: s(r.actor_label),
+    source: String(r.source),
+    action: String(r.action),
+    entityType: s(r.entity_type),
+    entityId: s(r.entity_id),
+    summary: s(r.summary),
+    before: r.before ?? null,
+    after: r.after ?? null,
+    createdAt: new Date(String(r.created_at)),
+  }));
 }
 
 // ───────────────────────── assembled project space ─────────────────────────
