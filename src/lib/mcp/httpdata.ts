@@ -4,8 +4,12 @@
  * The /mcp gateway runs in the worker, where the Hyperdrive→Postgres TCP tunnel
  * stalls intermittently (HTTP 1101). Everything /mcp needs to READ therefore goes
  * over Supabase PostgREST (Cloudflare's own HTTPS/HTTP-2 path) via lib/core/rest.ts.
- * The web app's READS still use Drizzle/Hyperdrive (V0.1); V0.2 converges its
- * WRITES onto the same RPC functions (lib/data/writes.ts → lib/data/write-rpc.ts).
+ * V0.2 converged the web's shared-domain WRITES onto the same RPC functions
+ * (lib/data/writes.ts → lib/data/write-rpc.ts); V0.3 converges the web's project-data
+ * READS (project space, phase/task/branch/… lists, timeline, agent + credential
+ * lists, Project Home cards) onto THIS layer too — so authenticated page loads stop
+ * touching Hyperdrive. Web-only identity (auth profile mirror, agent/credential/
+ * project lifecycle writes) intentionally stays on Drizzle per the V0.2 scope.
  *
  * Row → camel mappers live in lib/core/rows.ts (shared with the web write layer).
  */
