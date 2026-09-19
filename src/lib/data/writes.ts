@@ -1,15 +1,7 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import {
-  branches,
-  checkpoints,
-  decisions,
-  issues,
-  northStars,
-  phases,
   projects,
-  proposals,
-  tasks,
   type Branch,
   type Checkpoint,
   type Decision,
@@ -20,16 +12,7 @@ import {
   type Proposal,
   type Task,
 } from "@/lib/db/schema";
-import { logActivity, type Actor } from "@/lib/core/audit";
-import {
-  assertTransit,
-  BRANCH_TRANSITIONS,
-  DECISION_TRANSITIONS,
-  ISSUE_TRANSITIONS,
-  PHASE_TRANSITIONS,
-  PROPOSAL_TRANSITIONS,
-  TASK_TRANSITIONS,
-} from "@/lib/core/state-machines";
+import { type Actor } from "@/lib/core/audit";
 import {
   rpcCreateBranch,
   rpcCreateCheckpoint,
