@@ -35,9 +35,11 @@ import {
   rpcCreateDecision,
   rpcCreateIssue,
   rpcCreatePhase,
+  rpcCreateProposal,
   rpcCreateTask,
   rpcCloseBranch,
   rpcDecideDecision,
+  rpcDecideProposal,
   rpcDeletePhase,
   rpcDeleteTask,
   rpcProjectOf,
@@ -373,32 +375,13 @@ export interface ProposalCreate {
 }
 
 export async function createProposal(actor: Actor, input: ProposalCreate): Promise<Proposal> {
-  const db = getDb();
-  return db.transaction(async (tx) => {
-    const [row] = await tx
-      .insert(proposals)
-      .values({
-        projectId: input.projectId,
-        kind: input.kind ?? "OTHER",
-        title: input.title,
-        reason: input.reason ?? null,
-        description: input.description ?? null,
-        impact: input.impact ?? null,
-        relatedTaskId: input.relatedTaskId ?? null,
-        createdByType: actor.actorType === "AGENT" ? "AGENT" : "HUMAN",
-        createdById: actor.actorId ?? null,
-      })
-      .returning();
-    await logActivity(tx, {
-      projectId: input.projectId,
-      actor,
-      action: "PROPOSAL_CREATED",
-      entityType: "proposal",
-      entityId: row.id,
-      summary: `提交提案「${row.title}」(${row.kind})`,
-      after: { title: row.title, kind: row.kind },
-    });
-    return row;
+  return rpcCreateProposal(actor, input.projectId, {
+    title: input.title,
+    kind: input.kind ?? null,
+    reason: input.reason ?? null,
+    description: input.description ?? null,
+    impact: input.impact ?? null,
+    relatedTaskId: input.relatedTaskId ?? null,
   });
 }
 
@@ -407,35 +390,9 @@ export async function decideProposal(
   id: string,
   to: Proposal["status"],
 ): Promise<Proposal> {
-  const db = getDb();
-  return db.transaction(async (tx) => {
-    const [cur] = await tx.select().from(proposals).where(eq(proposals.id, id));
-    if (!cur) throw new NotFoundError("Proposal");
-    assertTransit("Proposal", PROPOSAL_TRANSITIONS, cur.status, to);
-    const [row] = await tx
-      .update(proposals)
-      .set({
-        status: to,
-        decidedBy: actor.actorType === "HUMAN" ? actor.actorId ?? null : cur.decidedBy,
-        decidedAt: new Date(),
-        version: sql`${proposals.version} + 1`,
-        updatedAt: new Date(),
-      })
-      .where(eq(proposals.id, id))
-      .returning();
-    await logActivity(tx, {
-      projectId: cur.projectId,
-      actor,
-      action:
-        to === "APPROVED" ? "PROPOSAL_APPROVED" : to === "REJECTED" ? "PROPOSAL_REJECTED" : "PROPOSAL_STATUS",
-      entityType: "proposal",
-      entityId: row.id,
-      summary: `提案「${row.title}」${cur.status} → ${to}`,
-      before: { status: cur.status },
-      after: { status: to },
-    });
-    return row;
-  });
+  const project = await rpcProjectOf("proposals", id);
+  if (!project) throw new NotFoundError("Proposal");
+  return rpcDecideProposal(actor, project, id, to);
 }
 
 // ───────────────────────── Checkpoint (append-only snapshot) ─────────────────────────

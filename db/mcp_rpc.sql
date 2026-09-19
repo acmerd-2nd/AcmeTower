@@ -605,3 +605,53 @@ begin
     execute format('grant execute on function public.%s to service_role', fn);
   end loop;
 end $$;
+
+-- ── Proposal decide (§54) ─────────────────────────────────────────────────────
+
+create or replace function public.mcp_proposal_transit_ok(p_from text, p_to text)
+returns boolean language sql immutable as $$
+  select p_from = p_to or case p_from
+    when 'PENDING'  then p_to = any (array['APPROVED','REJECTED','PARKED'])
+    when 'PARKED'   then p_to = any (array['PENDING'])
+    when 'APPROVED' then false
+    when 'REJECTED' then false
+    else false
+  end;
+$$;
+
+create or replace function public.mcp_decide_proposal(
+  p_id uuid, p_project uuid, p_to text, p_actor jsonb
+) returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
+declare cur public.proposals; r public.proposals;
+begin
+  select * into cur from public.proposals where id = p_id and project_id = p_project;
+  if cur.id is null then raise exception 'Proposal 不存在或不属于本项目'; end if;
+  if not public.mcp_proposal_transit_ok(cur.status::text, p_to) then
+    raise exception '非法状态转换：Proposal % → %', cur.status, p_to;
+  end if;
+  update public.proposals set
+    status      = p_to::proposal_status,
+    decided_by  = case when p_actor->>'type' = 'HUMAN' then nullif(p_actor->>'id','')::uuid else cur.decided_by end,
+    decided_at  = now(),
+    version     = version + 1,
+    updated_at  = now()
+  where id = p_id returning * into r;
+  perform public.mcp_log(r.project_id, p_actor,
+    case when p_to='APPROVED' then 'PROPOSAL_APPROVED' when p_to='REJECTED' then 'PROPOSAL_REJECTED' else 'PROPOSAL_STATUS' end,
+    'proposal', r.id,
+    '提案「'||r.title||'」'||cur.status||' → '||p_to,
+    jsonb_build_object('status', cur.status::text), jsonb_build_object('status', p_to));
+  return to_jsonb(r);
+end $$;
+
+do $$
+declare fn text;
+begin
+  foreach fn in array array[
+    'mcp_proposal_transit_ok(text,text)',
+    'mcp_decide_proposal(uuid,uuid,text,jsonb)'
+  ] loop
+    execute format('revoke all on function public.%s from public', fn);
+    execute format('grant execute on function public.%s to service_role', fn);
+  end loop;
+end $$;

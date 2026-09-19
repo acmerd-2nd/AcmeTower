@@ -340,6 +340,15 @@ export async function rpcCreateProposal(actor: Actor, projectId: string, input: 
   return mapProposal(unwrap(r));
 }
 
+export async function rpcDecideProposal(actor: Actor, projectId: string, proposalId: string, to: string): Promise<Proposal> {
+  const r = await restRpc(
+    "mcp_decide_proposal",
+    { p_id: proposalId, p_project: projectId, p_to: to, p_actor: actorJson(actor) },
+    { attempts: 1 },
+  );
+  return mapProposal(unwrap(r));
+}
+
 // ───────────────────────── Decision ─────────────────────────
 export interface DecisionCreateInput {
   title: string;
