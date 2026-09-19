@@ -32,6 +32,7 @@ import {
 } from "@/lib/core/state-machines";
 import {
   rpcCreateBranch,
+  rpcCreateCheckpoint,
   rpcCreateDecision,
   rpcCreateIssue,
   rpcCreatePhase,
@@ -416,37 +417,18 @@ export async function createCheckpoint(
   actor: Actor,
   input: CheckpointCreate,
 ): Promise<Checkpoint> {
-  const db = getDb();
-  return db.transaction(async (tx) => {
-    const [row] = await tx
-      .insert(checkpoints)
-      .values({
-        projectId: input.projectId,
-        summary: input.summary,
-        taskId: input.taskId ?? null,
-        branchId: input.branchId ?? null,
-        agentId: input.agentId ?? null,
-        sessionId: input.sessionId ?? null,
-        completedItems: input.completedItems ?? [],
-        unfinishedItems: input.unfinishedItems ?? [],
-        newIssues: input.newIssues ?? [],
-        newDecisions: input.newDecisions ?? [],
-        newBranches: input.newBranches ?? [],
-        currentStatus: input.currentStatus ?? null,
-        nextAction: input.nextAction ?? null,
-        createdByType: actor.actorType === "AGENT" ? "AGENT" : "HUMAN",
-        createdById: actor.actorId ?? null,
-      })
-      .returning();
-    await logActivity(tx, {
-      projectId: input.projectId,
-      actor,
-      action: "CHECKPOINT_CREATED",
-      entityType: "checkpoint",
-      entityId: row.id,
-      summary: `Checkpoint：${row.summary.slice(0, 60)}`,
-      after: { completed: row.completedItems.length, unfinished: row.unfinishedItems.length },
-    });
-    return row;
+  return rpcCreateCheckpoint(actor, input.projectId, {
+    summary: input.summary,
+    taskId: input.taskId ?? null,
+    branchId: input.branchId ?? null,
+    agentId: input.agentId ?? null,
+    sessionId: input.sessionId ?? null,
+    completedItems: input.completedItems,
+    unfinishedItems: input.unfinishedItems,
+    newIssues: input.newIssues,
+    newDecisions: input.newDecisions,
+    newBranches: input.newBranches,
+    currentStatus: input.currentStatus ?? null,
+    nextAction: input.nextAction ?? null,
   });
 }

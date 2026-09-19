@@ -278,6 +278,7 @@ export interface CheckpointInput {
   taskId?: string | null;
   branchId?: string | null;
   agentId?: string | null;
+  sessionId?: string | null;
   completedItems?: string[];
   unfinishedItems?: string[];
   newIssues?: string[];
@@ -296,6 +297,7 @@ export async function rpcCreateCheckpoint(actor: Actor, projectId: string, input
         task_id: input.taskId ?? "",
         branch_id: input.branchId ?? "",
         agent_id: input.agentId ?? "",
+        session_id: input.sessionId ?? "",
         completed_items: input.completedItems ?? [],
         unfinished_items: input.unfinishedItems ?? [],
         new_issues: input.newIssues ?? [],
