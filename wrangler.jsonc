@@ -4,6 +4,7 @@
   "main": ".open-next/worker.js",
   "compatibility_date": "2026-09-16",
   "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
   "assets": {
     "directory": ".open-next/assets",
     "binding": "ASSETS"
@@ -12,6 +13,12 @@
     {
       "binding": "HYPERDRIVE",
       "id": "315233c4d7af44e88cb82c8044323c3a"
+    }
+  ],
+  "routes": [
+    {
+      "pattern": "project.acmerd.com",
+      "custom_domain": true
     }
   ]
 }
