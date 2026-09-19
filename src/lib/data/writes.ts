@@ -32,6 +32,7 @@ import {
 } from "@/lib/core/state-machines";
 import {
   rpcCreateBranch,
+  rpcCreateIssue,
   rpcCreatePhase,
   rpcCreateTask,
   rpcCloseBranch,
@@ -41,6 +42,7 @@ import {
   rpcSetBranchStatus,
   rpcSetCurrentPhase,
   rpcSetCurrentTask,
+  rpcSetIssueStatus,
   rpcSetPhaseStatus,
   rpcSetTaskStatus,
   rpcUpdatePhase,
@@ -303,32 +305,14 @@ export interface IssueCreate {
 }
 
 export async function createIssue(actor: Actor, input: IssueCreate): Promise<Issue> {
-  const db = getDb();
-  return db.transaction(async (tx) => {
-    const [row] = await tx
-      .insert(issues)
-      .values({
-        projectId: input.projectId,
-        title: input.title,
-        description: input.description ?? null,
-        severity: input.severity ?? "MEDIUM",
-        source: input.source ?? null,
-        relatedPhaseId: input.relatedPhaseId ?? null,
-        relatedTaskId: input.relatedTaskId ?? null,
-        relatedBranchId: input.relatedBranchId ?? null,
-        createdById: actor.actorId ?? null,
-      })
-      .returning();
-    await logActivity(tx, {
-      projectId: input.projectId,
-      actor,
-      action: "ISSUE_CREATED",
-      entityType: "issue",
-      entityId: row.id,
-      summary: `创建 Issue「${row.title}」(${row.severity})`,
-      after: { title: row.title, severity: row.severity },
-    });
-    return row;
+  return rpcCreateIssue(actor, input.projectId, {
+    title: input.title,
+    description: input.description ?? null,
+    severity: input.severity ?? null,
+    source: input.source ?? null,
+    relatedTaskId: input.relatedTaskId ?? null,
+    relatedPhaseId: input.relatedPhaseId ?? null,
+    relatedBranchId: input.relatedBranchId ?? null,
   });
 }
 
@@ -338,34 +322,9 @@ export async function setIssueStatus(
   to: Issue["status"],
   resolution?: string,
 ): Promise<Issue> {
-  const db = getDb();
-  return db.transaction(async (tx) => {
-    const [cur] = await tx.select().from(issues).where(eq(issues.id, id));
-    if (!cur) throw new NotFoundError("Issue");
-    assertTransit("Issue", ISSUE_TRANSITIONS, cur.status, to);
-    const [row] = await tx
-      .update(issues)
-      .set({
-        status: to,
-        resolution: to === "RESOLVED" || to === "WONT_FIX" ? (resolution ?? cur.resolution) : cur.resolution,
-        resolvedAt: to === "RESOLVED" || to === "WONT_FIX" ? new Date() : cur.resolvedAt,
-        version: sql`${issues.version} + 1`,
-        updatedAt: new Date(),
-      })
-      .where(eq(issues.id, id))
-      .returning();
-    await logActivity(tx, {
-      projectId: cur.projectId,
-      actor,
-      action: to === "RESOLVED" || to === "WONT_FIX" ? "ISSUE_RESOLVED" : "ISSUE_STATUS",
-      entityType: "issue",
-      entityId: row.id,
-      summary: `Issue「${row.title}」${cur.status} → ${to}`,
-      before: { status: cur.status },
-      after: { status: to, resolution: row.resolution },
-    });
-    return row;
-  });
+  const project = await rpcProjectOf("issues", id);
+  if (!project) throw new NotFoundError("Issue");
+  return rpcSetIssueStatus(actor, project, id, to, resolution ?? null);
 }
 
 // ───────────────────────── Decision ─────────────────────────

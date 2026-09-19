@@ -257,6 +257,21 @@ export async function rpcCreateIssue(actor: Actor, projectId: string, input: Iss
   return mapIssue(unwrap(r));
 }
 
+export async function rpcSetIssueStatus(
+  actor: Actor,
+  projectId: string,
+  issueId: string,
+  to: string,
+  resolution?: string | null,
+): Promise<Issue> {
+  const r = await restRpc(
+    "mcp_set_issue_status",
+    { p_id: issueId, p_project: projectId, p_to: to, p_resolution: resolution ?? "", p_actor: actorJson(actor) },
+    { attempts: 1 },
+  );
+  return mapIssue(unwrap(r));
+}
+
 // ───────────────────────── Checkpoint ─────────────────────────
 export interface CheckpointInput {
   summary: string;

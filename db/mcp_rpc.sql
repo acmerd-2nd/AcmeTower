@@ -489,3 +489,55 @@ begin
     execute format('grant execute on function public.%s to service_role', fn);
   end loop;
 end $$;
+
+-- ── Issue ───────────────────────────────────────────────────────────────────
+
+-- §54 Issue transitions.
+create or replace function public.mcp_issue_transit_ok(p_from text, p_to text)
+returns boolean language sql immutable as $$
+  select p_from = p_to or case p_from
+    when 'OPEN'        then p_to = any (array['IN_PROGRESS','RESOLVED','WONT_FIX'])
+    when 'IN_PROGRESS' then p_to = any (array['OPEN','RESOLVED','WONT_FIX'])
+    when 'RESOLVED'    then p_to = any (array['OPEN'])
+    when 'WONT_FIX'    then p_to = any (array['OPEN'])
+    else false
+  end;
+$$;
+
+create or replace function public.mcp_set_issue_status(
+  p_id uuid, p_project uuid, p_to text, p_resolution text, p_actor jsonb
+) returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
+declare cur public.issues; r public.issues; closing boolean;
+begin
+  select * into cur from public.issues where id = p_id and project_id = p_project and deleted_at is null;
+  if cur.id is null then raise exception 'Issue 不存在或不属于本项目'; end if;
+  if not public.mcp_issue_transit_ok(cur.status::text, p_to) then
+    raise exception '非法状态转换：Issue % → %', cur.status, p_to;
+  end if;
+  closing := p_to in ('RESOLVED','WONT_FIX');
+  update public.issues set
+    status      = p_to::issue_status,
+    resolution  = case when closing then coalesce(nullif(p_resolution,''), cur.resolution) else cur.resolution end,
+    resolved_at = case when closing then now() else cur.resolved_at end,
+    version     = version + 1,
+    updated_at  = now()
+  where id = p_id returning * into r;
+  perform public.mcp_log(r.project_id, p_actor,
+    case when closing then 'ISSUE_RESOLVED' else 'ISSUE_STATUS' end, 'issue', r.id,
+    'Issue「'||r.title||'」'||cur.status||' → '||p_to,
+    jsonb_build_object('status', cur.status::text),
+    jsonb_build_object('status', p_to, 'resolution', r.resolution));
+  return to_jsonb(r);
+end $$;
+
+do $$
+declare fn text;
+begin
+  foreach fn in array array[
+    'mcp_issue_transit_ok(text,text)',
+    'mcp_set_issue_status(uuid,uuid,text,text,jsonb)'
+  ] loop
+    execute format('revoke all on function public.%s from public', fn);
+    execute format('grant execute on function public.%s to service_role', fn);
+  end loop;
+end $$;
