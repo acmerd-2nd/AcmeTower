@@ -384,3 +384,108 @@ begin
     execute format('grant execute on function public.%s to service_role', fn);
   end loop;
 end $$;
+
+-- ── Phase ───────────────────────────────────────────────────────────────────
+
+-- §53 Phase transitions.
+create or replace function public.mcp_phase_transit_ok(p_from text, p_to text)
+returns boolean language sql immutable as $$
+  select p_from = p_to or case p_from
+    when 'PLANNED'   then p_to = any (array['ACTIVE','CANCELLED'])
+    when 'ACTIVE'    then p_to = any (array['BLOCKED','COMPLETED','CANCELLED'])
+    when 'BLOCKED'   then p_to = any (array['ACTIVE','CANCELLED'])
+    when 'COMPLETED' then false
+    when 'CANCELLED' then p_to = any (array['PLANNED'])
+    else false
+  end;
+$$;
+
+create or replace function public.mcp_create_phase(
+  p_project uuid, p jsonb, p_actor jsonb
+) returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
+declare r public.phases; v_order integer;
+begin
+  v_order := coalesce(nullif(p->>'order_index','')::int,
+                      (select coalesce(max(order_index),0)+1 from public.phases where project_id = p_project));
+  insert into public.phases (project_id, name, goal, success_criteria, scope, description, order_index)
+  values (p_project, p->>'name', nullif(p->>'goal',''), nullif(p->>'success_criteria',''),
+          nullif(p->>'scope',''), nullif(p->>'description',''), v_order)
+  returning * into r;
+  perform public.mcp_log(r.project_id, p_actor, 'PHASE_CREATED', 'phase', r.id,
+    '创建 Phase「'||r.name||'」', null, jsonb_build_object('name', r.name, 'orderIndex', r.order_index));
+  return to_jsonb(r);
+end $$;
+
+create or replace function public.mcp_update_phase(
+  p_id uuid, p_project uuid, p_patch jsonb, p_expected_version integer, p_actor jsonb
+) returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
+declare r public.phases;
+begin
+  update public.phases t set
+    name             = coalesce(p_patch->>'name', t.name),
+    goal             = case when p_patch ? 'goal'             then nullif(p_patch->>'goal','')             else t.goal end,
+    success_criteria = case when p_patch ? 'success_criteria' then nullif(p_patch->>'success_criteria','') else t.success_criteria end,
+    scope            = case when p_patch ? 'scope'            then nullif(p_patch->>'scope','')            else t.scope end,
+    description      = case when p_patch ? 'description'      then nullif(p_patch->>'description','')      else t.description end,
+    order_index      = case when p_patch ? 'order_index'      then (p_patch->>'order_index')::int           else t.order_index end,
+    version          = t.version + 1,
+    updated_at       = now()
+  where t.id = p_id and t.project_id = p_project and t.deleted_at is null
+    and (p_expected_version is null or t.version = p_expected_version)
+  returning t.* into r;
+  if r.id is null then
+    if exists (select 1 from public.phases where id = p_id and project_id = p_project and deleted_at is null) then
+      raise exception 'Phase 已被其它改动更新（版本冲突），请刷新后重试';
+    else
+      raise exception 'Phase 不存在或不属于本项目';
+    end if;
+  end if;
+  perform public.mcp_log(r.project_id, p_actor, 'PHASE_UPDATED', 'phase', r.id,
+    '更新 Phase「'||r.name||'」', null, p_patch);
+  return to_jsonb(r);
+end $$;
+
+create or replace function public.mcp_set_phase_status(
+  p_id uuid, p_project uuid, p_to text, p_actor jsonb
+) returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
+declare cur public.phases; r public.phases;
+begin
+  select * into cur from public.phases where id = p_id and project_id = p_project and deleted_at is null;
+  if cur.id is null then raise exception 'Phase 不存在或不属于本项目'; end if;
+  if not public.mcp_phase_transit_ok(cur.status::text, p_to) then
+    raise exception '非法状态转换：Phase % → %', cur.status, p_to;
+  end if;
+  update public.phases set status = p_to::phase_status, version = version + 1, updated_at = now()
+   where id = p_id returning * into r;
+  perform public.mcp_log(r.project_id, p_actor, 'PHASE_STATUS', 'phase', r.id,
+    'Phase「'||r.name||'」状态 '||cur.status||' → '||p_to,
+    jsonb_build_object('status', cur.status::text), jsonb_build_object('status', p_to));
+  return to_jsonb(r);
+end $$;
+
+create or replace function public.mcp_delete_phase(
+  p_id uuid, p_project uuid, p_actor jsonb
+) returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
+declare cur public.phases;
+begin
+  select * into cur from public.phases where id = p_id and project_id = p_project and deleted_at is null;
+  if cur.id is null then return null; end if;
+  update public.phases set deleted_at = now() where id = p_id;
+  perform public.mcp_log(p_project, p_actor, 'PHASE_DELETED', 'phase', p_id, '归档 Phase「'||cur.name||'」', null, null);
+  return jsonb_build_object('id', p_id, 'deleted', true);
+end $$;
+
+do $$
+declare fn text;
+begin
+  foreach fn in array array[
+    'mcp_phase_transit_ok(text,text)',
+    'mcp_create_phase(uuid,jsonb,jsonb)',
+    'mcp_update_phase(uuid,uuid,jsonb,integer,jsonb)',
+    'mcp_set_phase_status(uuid,uuid,text,jsonb)',
+    'mcp_delete_phase(uuid,uuid,jsonb)'
+  ] loop
+    execute format('revoke all on function public.%s from public', fn);
+    execute format('grant execute on function public.%s to service_role', fn);
+  end loop;
+end $$;

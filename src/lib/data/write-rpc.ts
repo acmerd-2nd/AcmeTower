@@ -15,7 +15,7 @@
  * already-committed transaction, so a blind retry could double-apply a create.
  */
 import { restRpc, restSelect } from "@/lib/core/rest";
-import { mapBranch, mapCheckpoint, mapIssue, mapProposal, mapTask, type Row } from "@/lib/core/rows";
+import { mapBranch, mapCheckpoint, mapIssue, mapPhase, mapProposal, mapTask, type Row } from "@/lib/core/rows";
 import type { Branch, Checkpoint, Decision, Issue, NorthStar, Phase, Proposal, Task } from "@/lib/db/schema";
 import type { Actor } from "@/lib/core/audit";
 
@@ -86,6 +86,67 @@ export async function rpcSetCurrentTask(actor: Actor, projectId: string, taskId:
   await restRpc(
     "mcp_set_current_task",
     { p_project: projectId, p_task: taskId, p_actor: actorJson(actor) },
+    { attempts: 1 },
+  );
+}
+
+// ───────────────────────── Phase ─────────────────────────
+export interface PhaseCreateInput {
+  name: string;
+  goal?: string | null;
+  successCriteria?: string | null;
+  scope?: string | null;
+  description?: string | null;
+  orderIndex?: number;
+}
+export async function rpcCreatePhase(actor: Actor, projectId: string, input: PhaseCreateInput): Promise<Phase> {
+  const r = await restRpc(
+    "mcp_create_phase",
+    {
+      p_project: projectId,
+      p: {
+        name: input.name,
+        goal: input.goal ?? "",
+        success_criteria: input.successCriteria ?? "",
+        scope: input.scope ?? "",
+        description: input.description ?? "",
+        order_index: input.orderIndex != null ? String(input.orderIndex) : "",
+      },
+      p_actor: actorJson(actor),
+    },
+    { attempts: 1 },
+  );
+  return mapPhase(unwrap(r));
+}
+
+export async function rpcUpdatePhase(
+  actor: Actor,
+  projectId: string,
+  phaseId: string,
+  patch: Record<string, unknown>,
+  expectedVersion?: number,
+): Promise<Phase> {
+  const r = await restRpc(
+    "mcp_update_phase",
+    { p_id: phaseId, p_project: projectId, p_patch: patch, p_expected_version: expectedVersion ?? null, p_actor: actorJson(actor) },
+    { attempts: 1 },
+  );
+  return mapPhase(unwrap(r));
+}
+
+export async function rpcSetPhaseStatus(actor: Actor, projectId: string, phaseId: string, to: string): Promise<Phase> {
+  const r = await restRpc(
+    "mcp_set_phase_status",
+    { p_id: phaseId, p_project: projectId, p_to: to, p_actor: actorJson(actor) },
+    { attempts: 1 },
+  );
+  return mapPhase(unwrap(r));
+}
+
+export async function rpcDeletePhase(actor: Actor, projectId: string, phaseId: string): Promise<void> {
+  await restRpc(
+    "mcp_delete_phase",
+    { p_id: phaseId, p_project: projectId, p_actor: actorJson(actor) },
     { attempts: 1 },
   );
 }

@@ -31,11 +31,16 @@ import {
   TASK_TRANSITIONS,
 } from "@/lib/core/state-machines";
 import {
+  rpcCreatePhase,
   rpcCreateTask,
+  rpcDeletePhase,
   rpcDeleteTask,
   rpcProjectOf,
+  rpcSetCurrentPhase,
   rpcSetCurrentTask,
+  rpcSetPhaseStatus,
   rpcSetTaskStatus,
+  rpcUpdatePhase,
   rpcUpdateTask,
 } from "@/lib/data/write-rpc";
 
@@ -68,38 +73,13 @@ export interface PhaseCreate {
 }
 
 export async function createPhase(actor: Actor, input: PhaseCreate): Promise<Phase> {
-  const db = getDb();
-  return db.transaction(async (tx) => {
-    let order = input.orderIndex;
-    if (order === undefined) {
-      const [max] = await tx
-        .select({ m: sql<number>`coalesce(max(${phases.orderIndex}),0)::int` })
-        .from(phases)
-        .where(eq(phases.projectId, input.projectId));
-      order = (max?.m ?? 0) + 1;
-    }
-    const [row] = await tx
-      .insert(phases)
-      .values({
-        projectId: input.projectId,
-        name: input.name,
-        goal: input.goal ?? null,
-        successCriteria: input.successCriteria ?? null,
-        scope: input.scope ?? null,
-        description: input.description ?? null,
-        orderIndex: order,
-      })
-      .returning();
-    await logActivity(tx, {
-      projectId: input.projectId,
-      actor,
-      action: "PHASE_CREATED",
-      entityType: "phase",
-      entityId: row.id,
-      summary: `创建 Phase「${row.name}」`,
-      after: { name: row.name, orderIndex: row.orderIndex },
-    });
-    return row;
+  return rpcCreatePhase(actor, input.projectId, {
+    name: input.name,
+    goal: input.goal ?? null,
+    successCriteria: input.successCriteria ?? null,
+    scope: input.scope ?? null,
+    description: input.description ?? null,
+    orderIndex: input.orderIndex,
   });
 }
 
@@ -109,31 +89,16 @@ export async function updatePhase(
   patch: Partial<Pick<Phase, "name" | "goal" | "successCriteria" | "scope" | "description" | "orderIndex">>,
   expectedVersion?: number,
 ): Promise<Phase> {
-  const db = getDb();
-  return db.transaction(async (tx) => {
-    const conds = [eq(phases.id, id)];
-    if (expectedVersion != null) conds.push(eq(phases.version, expectedVersion));
-    const [row] = await tx
-      .update(phases)
-      .set({ ...patch, version: sql`${phases.version} + 1`, updatedAt: new Date() })
-      .where(and(...conds))
-      .returning();
-    if (!row) {
-      const [exists] = await tx.select({ id: phases.id }).from(phases).where(eq(phases.id, id));
-      if (!exists) throw new NotFoundError("Phase");
-      throw new ConflictError("Phase");
-    }
-    await logActivity(tx, {
-      projectId: row.projectId,
-      actor,
-      action: "PHASE_UPDATED",
-      entityType: "phase",
-      entityId: row.id,
-      summary: `更新 Phase「${row.name}」`,
-      after: patch,
-    });
-    return row;
-  });
+  const project = await rpcProjectOf("phases", id);
+  if (!project) throw new NotFoundError("Phase");
+  const p: Record<string, unknown> = {};
+  if (patch.name != null) p.name = patch.name;
+  if (patch.goal !== undefined) p.goal = patch.goal;
+  if (patch.successCriteria !== undefined) p.success_criteria = patch.successCriteria;
+  if (patch.scope !== undefined) p.scope = patch.scope;
+  if (patch.description !== undefined) p.description = patch.description;
+  if (patch.orderIndex !== undefined) p.order_index = patch.orderIndex;
+  return rpcUpdatePhase(actor, project, id, p, expectedVersion);
 }
 
 export async function setPhaseStatus(
@@ -141,45 +106,15 @@ export async function setPhaseStatus(
   id: string,
   to: Phase["status"],
 ): Promise<Phase> {
-  const db = getDb();
-  return db.transaction(async (tx) => {
-    const [cur] = await tx.select().from(phases).where(eq(phases.id, id));
-    if (!cur) throw new NotFoundError("Phase");
-    assertTransit("Phase", PHASE_TRANSITIONS, cur.status, to);
-    const [row] = await tx
-      .update(phases)
-      .set({ status: to, version: sql`${phases.version} + 1`, updatedAt: new Date() })
-      .where(eq(phases.id, id))
-      .returning();
-    await logActivity(tx, {
-      projectId: cur.projectId,
-      actor,
-      action: "PHASE_STATUS",
-      entityType: "phase",
-      entityId: row.id,
-      summary: `Phase「${row.name}」状态 ${cur.status} → ${to}`,
-      before: { status: cur.status },
-      after: { status: to },
-    });
-    return row;
-  });
+  const project = await rpcProjectOf("phases", id);
+  if (!project) throw new NotFoundError("Phase");
+  return rpcSetPhaseStatus(actor, project, id, to);
 }
 
 export async function softDeletePhase(actor: Actor, id: string): Promise<void> {
-  const db = getDb();
-  return db.transaction(async (tx) => {
-    const [cur] = await tx.select().from(phases).where(eq(phases.id, id));
-    if (!cur) return;
-    await tx.update(phases).set({ deletedAt: new Date() }).where(eq(phases.id, id));
-    await logActivity(tx, {
-      projectId: cur.projectId,
-      actor,
-      action: "PHASE_DELETED",
-      entityType: "phase",
-      entityId: id,
-      summary: `归档 Phase「${cur.name}」`,
-    });
-  });
+  const project = await rpcProjectOf("phases", id);
+  if (!project) return;
+  await rpcDeletePhase(actor, project, id);
 }
 
 // ───────────────────────── Task ─────────────────────────
@@ -248,19 +183,7 @@ export async function setCurrentPhase(
   projectId: string,
   phaseId: string,
 ): Promise<void> {
-  const db = getDb();
-  await db
-    .update(projects)
-    .set({ currentPhaseId: phaseId, version: sql`${projects.version} + 1`, updatedAt: new Date() })
-    .where(and(eq(projects.id, projectId), isNull(projects.deletedAt)));
-  await logActivity(db, {
-    projectId,
-    actor,
-    action: "PROJECT_SET_PHASE",
-    entityType: "project",
-    entityId: projectId,
-    summary: `当前 Phase 设为 ${phaseId}`,
-  });
+  await rpcSetCurrentPhase(actor, projectId, phaseId);
 }
 
 export async function setCurrentTask(
