@@ -1,9 +1,10 @@
-// V0.3 web-READ convergence smoke (Surface D): the Agents / Credentials page reads
-// now go over the SAME HTTPS PostgREST read layer as /mcp — no Hyperdrive on page
-// load. This exercises lib/data/agents + lib/data/credentials reads against a throw
-// away project with a real bound agent + credential, and asserts shapes, Date
-// timestamps, correct permission enums, agent-name joins, unbound filtering, and
-// that token_hash NEVER leaves the read layer.
+// V0.3 web-READ convergence smoke (Surface D + E): the Agents / Credentials page
+// reads AND the Project Home cards aggregate now go over the SAME HTTPS PostgREST
+// read layer as /mcp — no Hyperdrive on page load. It builds a throw-away project
+// with a bound agent + credential + phase + task + open branch, then asserts: agent/
+// credential read shapes, Date timestamps, permission enums, agent-name joins,
+// unbound filtering, token_hash NEVER leaving the read layer, and the listProjectCards
+// rollups (progress / phase index / current task / open branch) plus status+q filters.
 //
 // Run:  npx tsx scripts/test-web-reads.ts   (needs .env.local with DATABASE_URL +
 //   SUPABASE_URL + SUPABASE_SECRET_KEY).
@@ -26,6 +27,7 @@ process.env.SUPABASE_SECRET_KEY = env.SUPABASE_SECRET_KEY || "";
 const P = await import("@/lib/data/projects");
 const AG = await import("@/lib/data/agents");
 const CR = await import("@/lib/data/credentials");
+const W = await import("@/lib/data/writes");
 
 const sql = postgres(env.DATABASE_URL, { ssl: { require: true }, max: 1, connect_timeout: 25 });
 const human = { actorType: "HUMAN", actorLabel: "web-read-test", source: "WEB" } as const;
@@ -96,6 +98,44 @@ try {
     creds.every((c) => !("tokenHash" in c) && !("token_hash" in c)) && typeof c0?.tokenPrefix === "string" && c0!.tokenPrefix.length > 0,
   );
   check("credentialStatus(未过期未撤销) = ACTIVE", c0 ? CR.credentialStatus(c0) === "ACTIVE" : false);
+
+  // ---- Surface E: listProjectCards HTTPS aggregate + filters ----
+  const phase = await W.createPhase(human, { projectId: proj.id, name: "P1" });
+  const task = await W.createTask(human, { projectId: proj.id, phaseId: phase.id, name: "T1" });
+  await W.updateTask(human, task.id, { progress: 40 });
+  await W.setCurrentPhase(human, proj.id, phase.id);
+  await W.setCurrentTask(human, proj.id, task.id);
+  await W.createBranch(human, {
+    projectId: proj.id,
+    sourceType: "TASK",
+    sourceId: task.id,
+    name: "B1",
+    reason: "r",
+    goal: "g",
+    returnPointType: "TASK",
+    returnPointId: task.id,
+  });
+
+  const all = await P.listProjectCards();
+  const card = all.find((c) => c.id === proj.id);
+  check("listProjectCards 命中本项目", !!card);
+  check(
+    "listProjectCards 聚合：进度/phase 序号/当前任务/开放分支",
+    !!card &&
+      card.name === `wr ${rnd}` &&
+      card.status === "ACTIVE" &&
+      card.phaseTotal === 1 &&
+      card.phaseIndex === 1 &&
+      card.currentPhaseName === "P1" &&
+      card.currentTaskName === "T1" &&
+      card.progress === 40 &&
+      card.openBranches === 1,
+  );
+  check("listProjectCards updatedAt 为 Date", card ? card.updatedAt instanceof Date && !Number.isNaN(card.updatedAt.getTime()) : false);
+  check("listProjectCards status=ACTIVE 命中", (await P.listProjectCards({ status: "ACTIVE" })).some((c) => c.id === proj.id));
+  check("listProjectCards status=RISK 不含健康绿项目", !(await P.listProjectCards({ status: "RISK" })).some((c) => c.id === proj.id));
+  check("listProjectCards q 名称命中", (await P.listProjectCards({ q: rnd })).some((c) => c.id === proj.id));
+  check("listProjectCards q 非匹配排除", !(await P.listProjectCards({ q: `zznope-${rnd}` })).some((c) => c.id === proj.id));
 } finally {
   await sql`delete from mcp_credentials where project_id=${proj.id}`.catch(() => {});
   await sql`delete from project_agents where project_id=${proj.id}`.catch(() => {});
@@ -104,5 +144,5 @@ try {
   await sql.end();
 }
 
-console.log(`\n===== web-read 冒烟（Surface D）：${failures === 0 ? "PASS" : `FAIL (${failures})`} =====`);
+console.log(`\n===== web-read 冒烟（Surface D+E）：${failures === 0 ? "PASS" : `FAIL (${failures})`} =====`);
 process.exit(failures === 0 ? 0 : 2);

@@ -21,6 +21,7 @@ import {
   mapProject,
   mapProposal,
   mapTask,
+  n,
   s,
   type Row,
 } from "@/lib/core/rows";
@@ -36,6 +37,7 @@ import type {
   Task,
 } from "@/lib/db/schema";
 import type { CurrentMission, PhaseNode, ProjectSpace } from "@/lib/data/project";
+import type { ProjectCard, ProjectStatusFilter } from "@/lib/data/projects";
 
 // ───────────────────────── targeted reads (per tool) ─────────────────────────
 
@@ -100,6 +102,137 @@ export async function httpNorthStar(projectId: string): Promise<NorthStar | null
 export async function httpProposalRows(projectId: string): Promise<Proposal[]> {
   const rows = await restSelect(`proposals`, `project_id=eq.${enc(projectId)}&order=created_at.desc`);
   return rows.map(mapProposal);
+}
+
+// ───────────────────────── project cards (Surface E) ─────────────────────────
+// Mirrors lib/data/projects.listProjectCards (Project Home) as an HTTPS aggregate:
+// one filtered projects read, then batched per-project rollups over `in.(ids)`.
+// Count semantics intentionally match the prior SQL: branch/issue open-counts do
+// NOT filter soft-deletes, task avg-progress DOES, current-task/agent joins don't.
+
+export async function httpProjectCards(
+  params: { q?: string; status?: ProjectStatusFilter } = {},
+): Promise<ProjectCard[]> {
+  const pp = ["deleted_at=is.null"];
+  switch (params.status) {
+    case "ACTIVE":
+      pp.push("status=eq.ACTIVE");
+      break;
+    case "PAUSED":
+      pp.push("status=eq.PAUSED");
+      break;
+    case "COMPLETED":
+      pp.push("status=eq.COMPLETED");
+      break;
+    case "ARCHIVED":
+      pp.push("status=eq.ARCHIVED");
+      break;
+    case "RISK":
+      pp.push("health=neq.GREEN");
+      break;
+    default:
+      break; // ALL
+  }
+  if (params.q?.trim()) {
+    const like = `*${params.q.trim()}*`;
+    pp.push(`or=(name.ilike.${like},description.ilike.${like})`);
+  }
+  pp.push("order=updated_at.desc");
+  const projRows = await restSelect(
+    "projects",
+    pp.join("&"),
+    { columns: "id,name,slug,icon,description,status,health,current_phase_id,current_task_id,updated_at" },
+  );
+  if (projRows.length === 0) return [];
+
+  const ids = projRows.map((r) => String((r as Row).id));
+  const idIn = `in.(${ids.join(",")})`;
+
+  // current-task ids → task name + owning agent (unsoft-delete-filtered, as in SQL).
+  const currentTaskIds = projRows
+    .map((r) => s((r as Row).current_task_id))
+    .filter((x): x is string => !!x);
+  const [branchRows, issueRows, taskRows, phaseRows, curTaskRows] = await Promise.all([
+    restSelect("branches", `project_id=${idIn}&status=in.(OPEN,IN_PROGRESS,BLOCKED)`, { columns: "project_id" }),
+    restSelect("issues", `project_id=${idIn}&status=in.(OPEN,IN_PROGRESS)`, { columns: "project_id" }),
+    restSelect("tasks", `project_id=${idIn}&deleted_at=is.null`, { columns: "project_id,progress" }),
+    restSelect("phases", `project_id=${idIn}&deleted_at=is.null&order=order_index.asc`, {
+      columns: "id,project_id,name,order_index",
+    }),
+    currentTaskIds.length
+      ? restSelect("tasks", `id=in.(${currentTaskIds.join(",")})`, { columns: "id,name,current_agent_id" })
+      : Promise.resolve([] as Row[]),
+  ]);
+
+  // agents for the current tasks (unsoft-delete-filtered).
+  const curAgentIds = curTaskRows
+    .map((r) => s((r as Row).current_agent_id))
+    .filter((x): x is string => !!x);
+  const agentRows = curAgentIds.length
+    ? await restSelect("agents", `id=in.(${curAgentIds.join(",")})`, { columns: "id,name" })
+    : [];
+
+  const countByProject = (rows: Row[]) => {
+    const m = new Map<string, number>();
+    for (const r of rows) m.set(String(r.project_id), (m.get(String(r.project_id)) ?? 0) + 1);
+    return m;
+  };
+  const branchMap = countByProject(branchRows);
+  const issueMap = countByProject(issueRows);
+
+  const progSum = new Map<string, { sum: number; n: number }>();
+  for (const r of taskRows) {
+    const pid = String((r as Row).project_id);
+    const a = progSum.get(pid) ?? { sum: 0, n: 0 };
+    a.sum += n((r as Row).progress);
+    a.n += 1;
+    progSum.set(pid, a);
+  }
+
+  const phasesByProject = new Map<string, Array<{ id: string; name: string; orderIndex: number }>>();
+  for (const r of phaseRows) {
+    const pid = String((r as Row).project_id);
+    const arr = phasesByProject.get(pid) ?? [];
+    arr.push({ id: String((r as Row).id), name: String((r as Row).name ?? ""), orderIndex: n((r as Row).order_index) });
+    phasesByProject.set(pid, arr);
+  }
+
+  const curTaskById = new Map(curTaskRows.map((r) => [String((r as Row).id), r as Row]));
+  const agentNameById = new Map(agentRows.map((r) => [String((r as Row).id), String((r as Row).name ?? "")]));
+
+  return projRows.map((raw) => {
+    const r = raw as Row;
+    const pid = String(r.id);
+    const projPhases = phasesByProject.get(pid) ?? [];
+    const currentPhaseId = s(r.current_phase_id);
+    const currentPhase =
+      (currentPhaseId && projPhases.find((p) => p.id === currentPhaseId)) || projPhases[projPhases.length - 1];
+    const phaseIndex = currentPhase ? projPhases.findIndex((p) => p.id === currentPhase.id) + 1 : null;
+
+    const curTaskId = s(r.current_task_id);
+    const curTask = curTaskId ? curTaskById.get(curTaskId) : undefined;
+    const curAgentId = curTask ? s(curTask.current_agent_id) : null;
+
+    const agg = progSum.get(pid);
+    return {
+      id: pid,
+      name: String(r.name ?? ""),
+      slug: String(r.slug ?? ""),
+      icon: s(r.icon),
+      description: s(r.description),
+      status: String(r.status) as ProjectCard["status"],
+      health: String(r.health) as ProjectCard["health"],
+      currentPhaseName: currentPhase?.name ?? null,
+      phaseIndex: currentPhase ? phaseIndex : null,
+      phaseTotal: projPhases.length,
+      currentTaskName: curTask ? s(curTask.name) : null,
+      currentAgentName: curAgentId ? agentNameById.get(curAgentId) ?? null : null,
+      progress: agg && agg.n ? Math.round(agg.sum / agg.n) : 0,
+      openBranches: branchMap.get(pid) ?? 0,
+      openIssues: issueMap.get(pid) ?? 0,
+      updatedAt: new Date(String(r.updated_at)),
+    } satisfies ProjectCard;
+  });
 }
 
 // ───────────────────────── agents & credentials (Surface D) ─────────────────────────

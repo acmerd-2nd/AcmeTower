@@ -1,15 +1,7 @@
-import { and, count, desc, eq, ilike, inArray, isNull, ne, or, sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
-import {
-  agents,
-  branches,
-  issues,
-  phases,
-  projects,
-  tasks,
-  workspaces,
-  type Project,
-} from "@/lib/db/schema";
+import { projects, workspaces, type Project } from "@/lib/db/schema";
+import { httpProjectCards } from "@/lib/mcp/httpdata";
 
 export type ProjectStatusFilter =
   | "ALL"
@@ -44,140 +36,12 @@ export interface ProjectCard {
   updatedAt: Date;
 }
 
-function statusPredicate(status: ProjectStatusFilter | undefined) {
-  switch (status) {
-    case "ACTIVE":
-      return eq(projects.status, "ACTIVE");
-    case "PAUSED":
-      return eq(projects.status, "PAUSED");
-    case "COMPLETED":
-      return eq(projects.status, "COMPLETED");
-    case "ARCHIVED":
-      return eq(projects.status, "ARCHIVED");
-    case "RISK":
-      return ne(projects.health, "GREEN");
-    default:
-      return undefined; // ALL
-  }
-}
-
+/**
+ * Project Home cards (v0.1 规格 §6/§7). V0.3 Surface E: converged onto the same
+ * HTTPS read layer as /mcp — page loads no longer touch the Hyperdrive TCP tunnel.
+ */
 export async function listProjectCards(params: ListParams = {}): Promise<ProjectCard[]> {
-  const db = getDb();
-  const preds = [isNull(projects.deletedAt)];
-  const sp = statusPredicate(params.status);
-  if (sp) preds.push(sp);
-  if (params.q?.trim()) {
-    const like = `%${params.q.trim()}%`;
-    const qpred = or(ilike(projects.name, like), ilike(projects.description, like));
-    if (qpred) preds.push(qpred);
-  }
-
-  const rows = await db
-    .select()
-    .from(projects)
-    .where(and(...preds))
-    .orderBy(desc(projects.updatedAt));
-  if (rows.length === 0) return [];
-
-  const ids = rows.map((r) => r.id);
-
-  const [branchAgg, issueAgg, taskAgg, phaseCount, phaseRows, currentTaskRows] =
-    await Promise.all([
-      db
-        .select({ projectId: branches.projectId, n: count() })
-        .from(branches)
-        .where(
-          and(
-            inArray(branches.projectId, ids),
-            inArray(branches.status, ["OPEN", "IN_PROGRESS", "BLOCKED"]),
-          ),
-        )
-        .groupBy(branches.projectId),
-      db
-        .select({ projectId: issues.projectId, n: count() })
-        .from(issues)
-        .where(
-          and(
-            inArray(issues.projectId, ids),
-            inArray(issues.status, ["OPEN", "IN_PROGRESS"]),
-          ),
-        )
-        .groupBy(issues.projectId),
-      db
-        .select({
-          projectId: tasks.projectId,
-          avg: sql<number>`coalesce(round(avg(${tasks.progress})), 0)::int`,
-        })
-        .from(tasks)
-        .where(and(inArray(tasks.projectId, ids), isNull(tasks.deletedAt)))
-        .groupBy(tasks.projectId),
-      db
-        .select({ projectId: phases.projectId, n: count() })
-        .from(phases)
-        .where(and(inArray(phases.projectId, ids), isNull(phases.deletedAt)))
-        .groupBy(phases.projectId),
-      db
-        .select({
-          id: phases.id,
-          projectId: phases.projectId,
-          name: phases.name,
-          orderIndex: phases.orderIndex,
-        })
-        .from(phases)
-        .where(and(inArray(phases.projectId, ids), isNull(phases.deletedAt))),
-      db
-        .select({
-          projectId: projects.id,
-          taskName: tasks.name,
-          agentName: agents.name,
-        })
-        .from(projects)
-        .leftJoin(tasks, eq(tasks.id, projects.currentTaskId))
-        .leftJoin(agents, eq(agents.id, tasks.currentAgentId))
-        .where(inArray(projects.id, ids)),
-    ]);
-
-  const byId = <T extends { projectId: string }>(arr: T[]) => {
-    const m = new Map<string, T>();
-    for (const x of arr) m.set(x.projectId, x);
-    return m;
-  };
-  const branchMap = byId(branchAgg);
-  const issueMap = byId(issueAgg);
-  const taskMap = byId(taskAgg);
-  const phaseCountMap = byId(phaseCount);
-  const currentTaskMap = byId(currentTaskRows);
-
-  return rows.map((r) => {
-    const projPhases = phaseRows
-      .filter((p) => p.projectId === r.id)
-      .sort((a, b) => a.orderIndex - b.orderIndex);
-    const currentPhase =
-      (r.currentPhaseId && projPhases.find((p) => p.id === r.currentPhaseId)) ||
-      projPhases[projPhases.length - 1];
-    const phaseIndex = currentPhase
-      ? projPhases.findIndex((p) => p.id === currentPhase.id) + 1
-      : null;
-    const ct = currentTaskMap.get(r.id);
-    return {
-      id: r.id,
-      name: r.name,
-      slug: r.slug,
-      icon: r.icon,
-      description: r.description,
-      status: r.status,
-      health: r.health,
-      currentPhaseName: currentPhase?.name ?? null,
-      phaseIndex,
-      phaseTotal: phaseCountMap.get(r.id)?.n ?? projPhases.length,
-      currentTaskName: ct?.taskName ?? null,
-      currentAgentName: ct?.agentName ?? null,
-      progress: taskMap.get(r.id)?.avg ?? 0,
-      openBranches: branchMap.get(r.id)?.n ?? 0,
-      openIssues: issueMap.get(r.id)?.n ?? 0,
-      updatedAt: r.updatedAt,
-    } satisfies ProjectCard;
-  });
+  return httpProjectCards(params);
 }
 
 export interface NewProjectInput {
