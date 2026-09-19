@@ -541,3 +541,67 @@ begin
     execute format('grant execute on function public.%s to service_role', fn);
   end loop;
 end $$;
+
+-- ── Decision ────────────────────────────────────────────────────────────────
+
+-- §54 Decision transitions.
+create or replace function public.mcp_decision_transit_ok(p_from text, p_to text)
+returns boolean language sql immutable as $$
+  select p_from = p_to or case p_from
+    when 'PROPOSED'   then p_to = any (array['APPROVED','REJECTED'])
+    when 'APPROVED'   then p_to = any (array['SUPERSEDED'])
+    when 'REJECTED'   then false
+    when 'SUPERSEDED' then false
+    else false
+  end;
+$$;
+
+create or replace function public.mcp_create_decision(
+  p_project uuid, p jsonb, p_actor jsonb
+) returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
+declare r public.decisions;
+begin
+  insert into public.decisions (project_id, title, decision, reason, alternatives, impact, status, created_by)
+  values (p_project, p->>'title', p->>'decision', nullif(p->>'reason',''), nullif(p->>'alternatives',''),
+          nullif(p->>'impact',''), 'PROPOSED', nullif(p->>'created_by',''))
+  returning * into r;
+  perform public.mcp_log(r.project_id, p_actor, 'DECISION_CREATED', 'decision', r.id,
+    '提出 Decision「'||r.title||'」', null, jsonb_build_object('title', r.title));
+  return to_jsonb(r);
+end $$;
+
+create or replace function public.mcp_decide_decision(
+  p_id uuid, p_project uuid, p_to text, p_actor jsonb
+) returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
+declare cur public.decisions; r public.decisions;
+begin
+  select * into cur from public.decisions where id = p_id and project_id = p_project and deleted_at is null;
+  if cur.id is null then raise exception 'Decision 不存在或不属于本项目'; end if;
+  if not public.mcp_decision_transit_ok(cur.status::text, p_to) then
+    raise exception '非法状态转换：Decision % → %', cur.status, p_to;
+  end if;
+  update public.decisions set
+    status      = p_to::decision_status,
+    approved_at = case when p_to = 'APPROVED' then now() else cur.approved_at end,
+    version     = version + 1,
+    updated_at  = now()
+  where id = p_id returning * into r;
+  perform public.mcp_log(r.project_id, p_actor,
+    case when p_to = 'APPROVED' then 'DECISION_APPROVED' else 'DECISION_STATUS' end, 'decision', r.id,
+    'Decision「'||r.title||'」'||cur.status||' → '||p_to,
+    jsonb_build_object('status', cur.status::text), jsonb_build_object('status', p_to));
+  return to_jsonb(r);
+end $$;
+
+do $$
+declare fn text;
+begin
+  foreach fn in array array[
+    'mcp_decision_transit_ok(text,text)',
+    'mcp_create_decision(uuid,jsonb,jsonb)',
+    'mcp_decide_decision(uuid,uuid,text,jsonb)'
+  ] loop
+    execute format('revoke all on function public.%s from public', fn);
+    execute format('grant execute on function public.%s to service_role', fn);
+  end loop;
+end $$;

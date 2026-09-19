@@ -15,7 +15,7 @@
  * already-committed transaction, so a blind retry could double-apply a create.
  */
 import { restRpc, restSelect } from "@/lib/core/rest";
-import { mapBranch, mapCheckpoint, mapIssue, mapPhase, mapProposal, mapTask, type Row } from "@/lib/core/rows";
+import { mapBranch, mapCheckpoint, mapDecision, mapIssue, mapPhase, mapProposal, mapTask, type Row } from "@/lib/core/rows";
 import type { Branch, Checkpoint, Decision, Issue, NorthStar, Phase, Proposal, Task } from "@/lib/db/schema";
 import type { Actor } from "@/lib/core/audit";
 
@@ -338,6 +338,44 @@ export async function rpcCreateProposal(actor: Actor, projectId: string, input: 
     { attempts: 1 },
   );
   return mapProposal(unwrap(r));
+}
+
+// ───────────────────────── Decision ─────────────────────────
+export interface DecisionCreateInput {
+  title: string;
+  decision: string;
+  reason?: string | null;
+  alternatives?: string | null;
+  impact?: string | null;
+  createdByLabel?: string | null;
+}
+export async function rpcCreateDecision(actor: Actor, projectId: string, input: DecisionCreateInput): Promise<Decision> {
+  const r = await restRpc(
+    "mcp_create_decision",
+    {
+      p_project: projectId,
+      p: {
+        title: input.title,
+        decision: input.decision,
+        reason: input.reason ?? "",
+        alternatives: input.alternatives ?? "",
+        impact: input.impact ?? "",
+        created_by: input.createdByLabel ?? actor.actorLabel ?? "",
+      },
+      p_actor: actorJson(actor),
+    },
+    { attempts: 1 },
+  );
+  return mapDecision(unwrap(r));
+}
+
+export async function rpcDecideDecision(actor: Actor, projectId: string, decisionId: string, to: string): Promise<Decision> {
+  const r = await restRpc(
+    "mcp_decide_decision",
+    { p_id: decisionId, p_project: projectId, p_to: to, p_actor: actorJson(actor) },
+    { attempts: 1 },
+  );
+  return mapDecision(unwrap(r));
 }
 
 // Re-export domain types used by callers so imports stay stable as surface grows.

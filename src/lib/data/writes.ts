@@ -32,10 +32,12 @@ import {
 } from "@/lib/core/state-machines";
 import {
   rpcCreateBranch,
+  rpcCreateDecision,
   rpcCreateIssue,
   rpcCreatePhase,
   rpcCreateTask,
   rpcCloseBranch,
+  rpcDecideDecision,
   rpcDeletePhase,
   rpcDeleteTask,
   rpcProjectOf,
@@ -339,31 +341,13 @@ export interface DecisionCreate {
 }
 
 export async function createDecision(actor: Actor, input: DecisionCreate): Promise<Decision> {
-  const db = getDb();
-  return db.transaction(async (tx) => {
-    const [row] = await tx
-      .insert(decisions)
-      .values({
-        projectId: input.projectId,
-        title: input.title,
-        decision: input.decision,
-        reason: input.reason ?? null,
-        alternatives: input.alternatives ?? null,
-        impact: input.impact ?? null,
-        status: "PROPOSED",
-        createdBy: input.createdByLabel ?? actor.actorLabel ?? null,
-      })
-      .returning();
-    await logActivity(tx, {
-      projectId: input.projectId,
-      actor,
-      action: "DECISION_CREATED",
-      entityType: "decision",
-      entityId: row.id,
-      summary: `提出 Decision「${row.title}」`,
-      after: { title: row.title },
-    });
-    return row;
+  return rpcCreateDecision(actor, input.projectId, {
+    title: input.title,
+    decision: input.decision,
+    reason: input.reason ?? null,
+    alternatives: input.alternatives ?? null,
+    impact: input.impact ?? null,
+    createdByLabel: input.createdByLabel ?? actor.actorLabel ?? null,
   });
 }
 
@@ -372,33 +356,9 @@ export async function decideDecision(
   id: string,
   to: Decision["status"],
 ): Promise<Decision> {
-  const db = getDb();
-  return db.transaction(async (tx) => {
-    const [cur] = await tx.select().from(decisions).where(eq(decisions.id, id));
-    if (!cur) throw new NotFoundError("Decision");
-    assertTransit("Decision", DECISION_TRANSITIONS, cur.status, to);
-    const [row] = await tx
-      .update(decisions)
-      .set({
-        status: to,
-        approvedAt: to === "APPROVED" ? new Date() : cur.approvedAt,
-        version: sql`${decisions.version} + 1`,
-        updatedAt: new Date(),
-      })
-      .where(eq(decisions.id, id))
-      .returning();
-    await logActivity(tx, {
-      projectId: cur.projectId,
-      actor,
-      action: to === "APPROVED" ? "DECISION_APPROVED" : "DECISION_STATUS",
-      entityType: "decision",
-      entityId: row.id,
-      summary: `Decision「${row.title}」${cur.status} → ${to}`,
-      before: { status: cur.status },
-      after: { status: to },
-    });
-    return row;
-  });
+  const project = await rpcProjectOf("decisions", id);
+  if (!project) throw new NotFoundError("Decision");
+  return rpcDecideDecision(actor, project, id, to);
 }
 
 // ───────────────────────── Proposal (+ Parking Lot) ─────────────────────────
