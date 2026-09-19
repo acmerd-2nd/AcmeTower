@@ -13,8 +13,8 @@
  * isError tool result, mirroring how the Drizzle write layer's domain errors
  * surfaced before.
  */
-import { restRpc } from "@/lib/mcp/rest";
-import { mapBranch, mapCheckpoint, mapIssue, mapProposal, mapTask } from "@/lib/mcp/httpdata";
+import { restRpc } from "@/lib/core/rest";
+import { mapBranch, mapCheckpoint, mapIssue, mapProposal, mapTask } from "@/lib/core/rows";
 import type { Branch, Checkpoint, Issue, Proposal, Task } from "@/lib/db/schema";
 import type { McpPrincipal } from "@/lib/mcp/principal";
 

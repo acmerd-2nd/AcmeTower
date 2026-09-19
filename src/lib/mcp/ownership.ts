@@ -6,10 +6,10 @@
  * before handing it over. This closes the "use a project-A token to touch a
  * project-B row" hole — the Project Access rung of the auth chain.
  *
- * Runs over the HTTPS PostgREST path (lib/mcp/rest.ts) so the guard itself never
+ * Runs over the HTTPS PostgREST path (lib/core/rest.ts) so the guard itself never
  * hits the flaky Hyperdrive TCP tunnel.
  */
-import { restSelect } from "@/lib/mcp/rest";
+import { restSelect } from "@/lib/core/rest";
 import type { McpPrincipal } from "@/lib/mcp/principal";
 
 export class ForbiddenError extends Error {

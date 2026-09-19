@@ -2,7 +2,7 @@
  * MCP bearer-token authentication — the "Token → Project Access" rung of the
  * auth chain (v0.1设计文档 §42–§43).
  *
- * Runs entirely over the Supabase PostgREST HTTPS path (see lib/mcp/rest.ts):
+ * Runs entirely over the Supabase PostgREST HTTPS path (see lib/core/rest.ts):
  * the worker's Hyperdrive→Postgres TCP tunnel stalls intermittently, and the
  * very first thing every /mcp request does is look up the token. Putting this
  * read on Cloudflare's HTTP/2 path makes the auth gate itself stable, and it
@@ -15,7 +15,7 @@
  *   3. its project still exists, is not deleted, is not archived
  * The winning row's (projectId, permissionLevel) becomes the request principal.
  */
-import { restSelect } from "@/lib/mcp/rest";
+import { restSelect } from "@/lib/core/rest";
 import { hashToken, tokenPrefix } from "@/lib/mcp/token";
 import type { McpPrincipal, PermissionLevel } from "@/lib/mcp/principal";
 
