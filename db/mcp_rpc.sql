@@ -655,3 +655,42 @@ begin
     execute format('grant execute on function public.%s to service_role', fn);
   end loop;
 end $$;
+
+-- ── North Star (1:1 per project; human governance write from web) ──────────────
+
+create or replace function public.mcp_upsert_north_star(
+  p_project uuid, p jsonb, p_actor jsonb
+) returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
+declare cur public.north_star; r public.north_star; existed boolean;
+begin
+  select * into cur from public.north_star where project_id = p_project;
+  existed := cur.id is not null;
+  if existed then
+    update public.north_star t set
+      name             = case when p ? 'name'             then nullif(p->>'name','')             else t.name end,
+      description      = case when p ? 'description'      then nullif(p->>'description','')      else t.description end,
+      final_goal       = case when p ? 'final_goal'       then nullif(p->>'final_goal','')       else t.final_goal end,
+      deliverable      = case when p ? 'deliverable'      then nullif(p->>'deliverable','')      else t.deliverable end,
+      success_criteria = case when p ? 'success_criteria' then nullif(p->>'success_criteria','') else t.success_criteria end,
+      non_goals        = case when p ? 'non_goals'        then nullif(p->>'non_goals','')        else t.non_goals end,
+      constraints      = case when p ? 'constraints'      then nullif(p->>'constraints','')      else t.constraints end,
+      version          = t.version + 1,
+      updated_at       = now()
+    where t.id = cur.id returning * into r;
+  else
+    insert into public.north_star (project_id, name, description, final_goal, deliverable, success_criteria, non_goals, constraints)
+    values (p_project, nullif(p->>'name',''), nullif(p->>'description',''), nullif(p->>'final_goal',''),
+            nullif(p->>'deliverable',''), nullif(p->>'success_criteria',''), nullif(p->>'non_goals',''), nullif(p->>'constraints',''))
+    returning * into r;
+  end if;
+  perform public.mcp_log(p_project, p_actor,
+    case when existed then 'NORTH_STAR_UPDATED' else 'NORTH_STAR_CREATED' end, 'north_star', r.id,
+    case when existed then '更新 North Star' else '创建 North Star' end, null, p);
+  return to_jsonb(r);
+end $$;
+
+do $$
+begin
+  execute 'revoke all on function public.mcp_upsert_north_star(uuid,jsonb,jsonb) from public';
+  execute 'grant execute on function public.mcp_upsert_north_star(uuid,jsonb,jsonb) to service_role';
+end $$;

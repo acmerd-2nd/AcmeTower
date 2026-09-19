@@ -15,7 +15,7 @@
  * already-committed transaction, so a blind retry could double-apply a create.
  */
 import { restRpc, restSelect } from "@/lib/core/rest";
-import { mapBranch, mapCheckpoint, mapDecision, mapIssue, mapPhase, mapProposal, mapTask, type Row } from "@/lib/core/rows";
+import { mapBranch, mapCheckpoint, mapDecision, mapIssue, mapNorthStar, mapPhase, mapProposal, mapTask, type Row } from "@/lib/core/rows";
 import type { Branch, Checkpoint, Decision, Issue, NorthStar, Phase, Proposal, Task } from "@/lib/db/schema";
 import type { Actor } from "@/lib/core/audit";
 
@@ -387,6 +387,17 @@ export async function rpcDecideDecision(actor: Actor, projectId: string, decisio
     { attempts: 1 },
   );
   return mapDecision(unwrap(r));
+}
+
+// ───────────────────────── North Star ─────────────────────────
+// `patch` uses snake_case keys; only present keys are written (RPC keeps the rest).
+export async function rpcUpsertNorthStar(actor: Actor, projectId: string, patch: Record<string, unknown>): Promise<NorthStar> {
+  const r = await restRpc(
+    "mcp_upsert_north_star",
+    { p_project: projectId, p: patch, p_actor: actorJson(actor) },
+    { attempts: 1 },
+  );
+  return mapNorthStar(unwrap(r));
 }
 
 // Re-export domain types used by callers so imports stay stable as surface grows.

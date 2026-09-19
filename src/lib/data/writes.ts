@@ -52,6 +52,7 @@ import {
   rpcSetTaskStatus,
   rpcUpdatePhase,
   rpcUpdateTask,
+  rpcUpsertNorthStar,
 } from "@/lib/data/write-rpc";
 
 export class NotFoundError extends Error {
@@ -257,33 +258,16 @@ export async function upsertNorthStar(
   projectId: string,
   patch: Partial<Omit<NorthStar, "id" | "projectId" | "createdAt" | "updatedAt" | "version">>,
 ): Promise<NorthStar> {
-  const db = getDb();
-  return db.transaction(async (tx) => {
-    const [cur] = await tx.select().from(northStars).where(eq(northStars.projectId, projectId));
-    let row: NorthStar;
-    if (cur) {
-      [row] = await tx
-        .update(northStars)
-        .set({ ...patch, version: sql`${northStars.version} + 1`, updatedAt: new Date() })
-        .where(eq(northStars.id, cur.id))
-        .returning();
-    } else {
-      [row] = await tx
-        .insert(northStars)
-        .values({ projectId, ...patch })
-        .returning();
-    }
-    await logActivity(tx, {
-      projectId,
-      actor,
-      action: cur ? "NORTH_STAR_UPDATED" : "NORTH_STAR_CREATED",
-      entityType: "north_star",
-      entityId: row.id,
-      summary: cur ? "更新 North Star" : "创建 North Star",
-      after: patch,
-    });
-    return row;
-  });
+  // camel patch → snake; only provided keys are sent (RPC keeps the rest on update).
+  const p: Record<string, unknown> = {};
+  if (patch.name !== undefined) p.name = patch.name;
+  if (patch.description !== undefined) p.description = patch.description;
+  if (patch.finalGoal !== undefined) p.final_goal = patch.finalGoal;
+  if (patch.deliverable !== undefined) p.deliverable = patch.deliverable;
+  if (patch.successCriteria !== undefined) p.success_criteria = patch.successCriteria;
+  if (patch.nonGoals !== undefined) p.non_goals = patch.nonGoals;
+  if (patch.constraints !== undefined) p.constraints = patch.constraints;
+  return rpcUpsertNorthStar(actor, projectId, p);
 }
 
 // re-export for callers needing project existence checks
