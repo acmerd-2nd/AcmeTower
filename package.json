@@ -21,7 +21,8 @@
     "db:apply-mcp-rpc": "node scripts/apply-mcp-rpc.mjs",
     "auth:create-admin": "tsx scripts/create-admin.ts",
     "test:acceptance": "tsx scripts/acceptance.ts",
-    "test:web-writes": "tsx scripts/test-web-writes.ts"
+    "test:web-writes": "tsx scripts/test-web-writes.ts",
+    "test:web-reads": "tsx scripts/test-web-reads.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "^2.0.0",

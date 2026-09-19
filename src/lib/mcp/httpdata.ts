@@ -102,6 +102,129 @@ export async function httpProposalRows(projectId: string): Promise<Proposal[]> {
   return rows.map(mapProposal);
 }
 
+// ───────────────────────── agents & credentials (Surface D) ─────────────────────────
+// Mirror lib/data/agents + lib/data/credentials READS over HTTPS PostgREST so the
+// Agents / Credentials page loads stop touching Hyperdrive. Writes & identity ops
+// stay on Drizzle (web-only, per V0.2 scope).
+
+export type PermissionLevel = "READ" | "WORKING_WRITE" | "STRUCTURAL_WRITE" | "GOVERNANCE";
+
+export interface HttpProjectAgentRow {
+  agentId: string;
+  name: string;
+  provider: string | null;
+  description: string | null;
+  role: string | null; // agents.role (default descriptor)
+  bindingRole: string | null; // project_agents.role (this project's role)
+  permissionLevel: PermissionLevel;
+  enabled: boolean;
+}
+
+export interface HttpCredentialRow {
+  id: string;
+  name: string;
+  tokenPrefix: string;
+  permissionLevel: PermissionLevel;
+  agentId: string | null;
+  createdAt: Date;
+  lastUsedAt: Date | null;
+  expiresAt: Date | null;
+  revokedAt: Date | null;
+  agentName: string | null;
+}
+
+const dt = (v: unknown): Date | null => (v == null ? null : new Date(String(v)));
+const plv = (v: unknown): PermissionLevel =>
+  (v == null ? "READ" : String(v)) as PermissionLevel;
+
+/** Agents bound to this project (soft-deleted agents filtered client-side), name-ascending. */
+export async function httpProjectAgentRows(projectId: string): Promise<HttpProjectAgentRow[]> {
+  const rows = await restSelect(`project_agents`, `project_id=eq.${enc(projectId)}`, {
+    columns: "role,permission_level,enabled,agents(id,name,provider,description,role,deleted_at)",
+  });
+  return rows
+    .filter((r) => {
+      const ag = (r as Row).agents as { deleted_at?: unknown } | null;
+      return ag != null && ag.deleted_at == null;
+    })
+    .map((r) => {
+      const ag = ((r as Row).agents ?? {}) as Row;
+      return {
+        agentId: String(ag.id),
+        name: String(ag.name ?? ""),
+        provider: s(ag.provider),
+        description: s(ag.description),
+        role: s(ag.role),
+        bindingRole: s((r as Row).role),
+        permissionLevel: plv((r as Row).permission_level),
+        enabled: (r as Row).enabled !== false,
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Global live agents NOT bound to this project (the "attach" picker). */
+export async function httpUnboundAgentRows(
+  projectId: string,
+): Promise<Array<{ id: string; name: string; provider: string | null }>> {
+  const p = enc(projectId);
+  const [bound, all] = await Promise.all([
+    restSelect(`project_agents`, `project_id=eq.${p}`, { columns: "agent_id" }),
+    restSelect(`agents`, `deleted_at=is.null&order=name.asc`, { columns: "id,name,provider" }),
+  ]);
+  const boundIds = new Set(bound.map((b) => String((b as Row).agent_id)));
+  return all
+    .filter((a) => !boundIds.has(String((a as Row).id)))
+    .map((a) => ({ id: String((a as Row).id), name: String((a as Row).name ?? ""), provider: s((a as Row).provider) }));
+}
+
+/** id → name for agents bound to this project (labels). */
+export async function httpBoundAgentNames(projectId: string): Promise<Map<string, string>> {
+  const rows = await restSelect(`project_agents`, `project_id=eq.${enc(projectId)}`, {
+    columns: "agent_id,agents(name,deleted_at)",
+  });
+  const m = new Map<string, string>();
+  for (const r of rows) {
+    const ag = (r as Row).agents as { name?: string; deleted_at?: unknown } | null;
+    if (ag && ag.deleted_at == null && ag.name != null) m.set(String((r as Row).agent_id), String(ag.name));
+  }
+  return m;
+}
+
+/** Live agents bound to this project, id+name (credential binding picker). */
+export async function httpProjectAgentOptions(
+  projectId: string,
+): Promise<Array<{ id: string; name: string }>> {
+  return (await httpProjectAgentRows(projectId)).map((a) => ({ id: a.agentId, name: a.name }));
+}
+
+/** All credentials for a project (newest-first) WITHOUT token_hash. */
+export async function httpCredentialRows(projectId: string): Promise<HttpCredentialRow[]> {
+  const rows = await restSelect(
+    `mcp_credentials`,
+    `project_id=eq.${enc(projectId)}&order=created_at.desc`,
+    {
+      columns:
+        "id,name,token_prefix,permission_level,agent_id,created_at,last_used_at,expires_at,revoked_at,agents(name)",
+    },
+  );
+  return rows.map((r) => {
+    const ag = (r as Row).agents as { name?: string } | null;
+    return {
+      id: String((r as Row).id),
+      name: String((r as Row).name ?? ""),
+      tokenPrefix: String((r as Row).token_prefix ?? ""),
+      permissionLevel: plv((r as Row).permission_level),
+      agentId: s((r as Row).agent_id),
+      createdAt: dt((r as Row).created_at) ?? new Date(0),
+      lastUsedAt: dt((r as Row).last_used_at),
+      expiresAt: dt((r as Row).expires_at),
+      revokedAt: dt((r as Row).revoked_at),
+      agentName: ag?.name != null ? String(ag.name) : null,
+    };
+  });
+}
+
 // ───────────────────────── activity timeline ─────────────────────────
 // Mirrors lib/data/timeline.getTimeline (V0.3): project-scoped, optional source
 // filter, optional free-text q over summary/action, newest-first, bounded.

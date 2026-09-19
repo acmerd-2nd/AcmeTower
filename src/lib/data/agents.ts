@@ -5,11 +5,16 @@
  * project. All writes share the audit stream; permission level mirrors §29 and never
  * grants GOVERNANCE to an agent (that stays human-only).
  */
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import { agents, projectAgents, type Agent } from "@/lib/db/schema";
 import { logActivity, type Actor } from "@/lib/core/audit";
 import { NotFoundError } from "@/lib/data/writes";
+import {
+  httpBoundAgentNames,
+  httpProjectAgentRows,
+  httpUnboundAgentRows,
+} from "@/lib/mcp/httpdata";
 
 type PermissionLevel = "READ" | "WORKING_WRITE" | "STRUCTURAL_WRITE" | "GOVERNANCE";
 
@@ -26,38 +31,12 @@ export interface ProjectAgentRow {
 
 /** Agents bound to this project, with their per-project binding. */
 export async function listProjectAgents(projectId: string): Promise<ProjectAgentRow[]> {
-  const db = getDb();
-  const rows = await db
-    .select({
-      agentId: agents.id,
-      name: agents.name,
-      provider: agents.provider,
-      description: agents.description,
-      role: agents.role,
-      bindingRole: projectAgents.role,
-      permissionLevel: projectAgents.permissionLevel,
-      enabled: projectAgents.enabled,
-    })
-    .from(projectAgents)
-    .innerJoin(agents, eq(agents.id, projectAgents.agentId))
-    .where(and(eq(projectAgents.projectId, projectId), isNull(agents.deletedAt)))
-    .orderBy(agents.name);
-  return rows;
+  return httpProjectAgentRows(projectId);
 }
 
 /** Global agents NOT yet bound to this project (for the "attach" picker). */
 export async function unboundAgents(projectId: string) {
-  const db = getDb();
-  const bound = await db
-    .select({ agentId: projectAgents.agentId })
-    .from(projectAgents)
-    .where(eq(projectAgents.projectId, projectId));
-  const boundIds = bound.map((b) => b.agentId);
-  const all = await db
-    .select({ id: agents.id, name: agents.name, provider: agents.provider })
-    .from(agents)
-    .where(isNull(agents.deletedAt));
-  return all.filter((a) => !boundIds.includes(a.id));
+  return httpUnboundAgentRows(projectId);
 }
 
 /** Create a new Agent AND bind it to the project with a permission in one tx. */
@@ -215,11 +194,5 @@ export async function unbindAgent(actor: Actor, projectId: string, agentId: stri
 
 /** Names of agents bound to a project (for labels). */
 export async function boundAgentNames(projectId: string): Promise<Map<string, string>> {
-  const db = getDb();
-  const rows = await db
-    .select({ agentId: projectAgents.agentId, name: agents.name })
-    .from(projectAgents)
-    .innerJoin(agents, eq(agents.id, projectAgents.agentId))
-    .where(eq(projectAgents.projectId, projectId));
-  return new Map(rows.map((r) => [r.agentId, r.name]));
+  return httpBoundAgentNames(projectId);
 }

@@ -5,12 +5,13 @@
  * display prefix are ever stored — the plaintext is never persisted or re-listed.
  * Creation/revocation are audited through the same logActivity as everything else.
  */
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
-import { agents, mcpCredentials, projectAgents } from "@/lib/db/schema";
+import { mcpCredentials } from "@/lib/db/schema";
 import { logActivity, type Actor } from "@/lib/core/audit";
 import { NotFoundError } from "@/lib/data/writes";
 import { generateToken, hashToken, tokenPrefix } from "@/lib/mcp/token";
+import { httpCredentialRows, httpProjectAgentOptions } from "@/lib/mcp/httpdata";
 
 export type CredentialStatus = "ACTIVE" | "EXPIRED" | "REVOKED";
 
@@ -35,35 +36,12 @@ export function credentialStatus(c: { revokedAt: Date | null; expiresAt: Date | 
 
 /** All credentials for a project (newest first), WITHOUT the token hash. */
 export async function listCredentials(projectId: string): Promise<CredentialRow[]> {
-  const db = getDb();
-  const rows = await db
-    .select({
-      id: mcpCredentials.id,
-      name: mcpCredentials.name,
-      tokenPrefix: mcpCredentials.tokenPrefix,
-      permissionLevel: mcpCredentials.permissionLevel,
-      agentId: mcpCredentials.agentId,
-      createdAt: mcpCredentials.createdAt,
-      lastUsedAt: mcpCredentials.lastUsedAt,
-      expiresAt: mcpCredentials.expiresAt,
-      revokedAt: mcpCredentials.revokedAt,
-      agentName: agents.name,
-    })
-    .from(mcpCredentials)
-    .leftJoin(agents, eq(agents.id, mcpCredentials.agentId))
-    .where(eq(mcpCredentials.projectId, projectId))
-    .orderBy(desc(mcpCredentials.createdAt));
-  return rows.map((r) => ({ ...r }));
+  return httpCredentialRows(projectId);
 }
 
 /** Editable agents already attached to this project (for optional binding). */
 export async function projectAgentOptions(projectId: string) {
-  const db = getDb();
-  return db
-    .select({ id: agents.id, name: agents.name })
-    .from(agents)
-    .innerJoin(projectAgents, eq(projectAgents.agentId, agents.id))
-    .where(and(eq(projectAgents.projectId, projectId), isNull(agents.deletedAt)));
+  return httpProjectAgentOptions(projectId);
 }
 
 export interface CredentialCreate {
