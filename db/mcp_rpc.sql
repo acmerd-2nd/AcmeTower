@@ -313,3 +313,74 @@ begin
     execute format('grant execute on function public.%s to service_role', fn);
   end loop;
 end $$;
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- V0.2 write convergence — functions used ONLY by the web write layer today
+-- (web and /mcp share lib/data/write-rpc.ts). Same invariants: project-ownership
+-- guard, optimistic version bump, state machine, append-only audit.
+-- ══════════════════════════════════════════════════════════════════════════
+
+-- ── Task create / current-pointer / soft-delete ─────────────────────────────
+
+create or replace function public.mcp_create_task(
+  p_project uuid, p jsonb, p_actor jsonb
+) returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
+declare r public.tasks;
+begin
+  insert into public.tasks (project_id, phase_id, name, purpose, success_criteria, description, priority)
+  values (p_project, (p->>'phase_id')::uuid, p->>'name',
+          nullif(p->>'purpose',''), nullif(p->>'success_criteria',''), nullif(p->>'description',''),
+          coalesce(nullif(p->>'priority',''),'MEDIUM')::task_priority)
+  returning * into r;
+  perform public.mcp_log(r.project_id, p_actor, 'TASK_CREATED', 'task', r.id,
+    '创建任务「'||r.name||'」', null, jsonb_build_object('name', r.name, 'status', r.status));
+  return to_jsonb(r);
+end $$;
+
+-- soft-delete: no-op if the row is gone / not in this project (mirrors web behavior).
+create or replace function public.mcp_delete_task(
+  p_id uuid, p_project uuid, p_actor jsonb
+) returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
+declare cur public.tasks;
+begin
+  select * into cur from public.tasks where id = p_id and project_id = p_project and deleted_at is null;
+  if cur.id is null then return null; end if;
+  update public.tasks set deleted_at = now() where id = p_id;
+  perform public.mcp_log(p_project, p_actor, 'TASK_DELETED', 'task', p_id, '归档任务「'||cur.name||'」', null, null);
+  return jsonb_build_object('id', p_id, 'deleted', true);
+end $$;
+
+-- denormalized current pointers on projects (also bumps project.version).
+create or replace function public.mcp_set_current_phase(
+  p_project uuid, p_phase uuid, p_actor jsonb
+) returns void language plpgsql security definer set search_path = public, pg_temp as $$
+begin
+  update public.projects set current_phase_id = p_phase, version = version + 1, updated_at = now()
+   where id = p_project and deleted_at is null;
+  perform public.mcp_log(p_project, p_actor, 'PROJECT_SET_PHASE', 'project', p_project,
+    '当前 Phase 设为 '||p_phase, null, null);
+end $$;
+
+create or replace function public.mcp_set_current_task(
+  p_project uuid, p_task uuid, p_actor jsonb
+) returns void language plpgsql security definer set search_path = public, pg_temp as $$
+begin
+  update public.projects set current_task_id = p_task, version = version + 1, updated_at = now()
+   where id = p_project and deleted_at is null;
+  perform public.mcp_log(p_project, p_actor, 'PROJECT_SET_TASK', 'project', p_project,
+    '当前 Task 设为 '||p_task, null, null);
+end $$;
+
+do $$
+declare fn text;
+begin
+  foreach fn in array array[
+    'mcp_create_task(uuid,jsonb,jsonb)',
+    'mcp_delete_task(uuid,uuid,jsonb)',
+    'mcp_set_current_phase(uuid,uuid,jsonb)',
+    'mcp_set_current_task(uuid,uuid,jsonb)'
+  ] loop
+    execute format('revoke all on function public.%s from public', fn);
+    execute format('grant execute on function public.%s to service_role', fn);
+  end loop;
+end $$;

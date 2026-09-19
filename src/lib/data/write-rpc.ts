@@ -14,7 +14,7 @@
  * Writes run exactly once (attempts:1): a client deadline does not roll back an
  * already-committed transaction, so a blind retry could double-apply a create.
  */
-import { restRpc } from "@/lib/core/rest";
+import { restRpc, restSelect } from "@/lib/core/rest";
 import { mapBranch, mapCheckpoint, mapIssue, mapProposal, mapTask, type Row } from "@/lib/core/rows";
 import type { Branch, Checkpoint, Decision, Issue, NorthStar, Phase, Proposal, Task } from "@/lib/db/schema";
 import type { Actor } from "@/lib/core/audit";
@@ -25,7 +25,71 @@ export function actorJson(a: Actor) {
   return { type: a.actorType, id: a.actorId ?? null, label: a.actorLabel ?? null, source: a.source };
 }
 
+/**
+ * Owning project id of a row (HTTPS read). The web write layer historically had
+ * no per-project guard and its call sites don't carry a projectId, so by-id
+ * mutations resolve the owner here and hand it to the RPC (which scopes by it) —
+ * this preserves the RPC's project guard without changing every call signature.
+ */
+export async function rpcProjectOf(table: "tasks" | "branches" | "phases" | "issues" | "decisions" | "proposals", id: string): Promise<string | null> {
+  const rows = await restSelect(table, `id=eq.${encodeURIComponent(id)}&limit=1`, { columns: "project_id" });
+  const v = rows[0]?.project_id;
+  return v == null ? null : String(v);
+}
+
 // ───────────────────────── Task ─────────────────────────
+export interface TaskCreateInput {
+  phaseId: string;
+  name: string;
+  purpose?: string | null;
+  successCriteria?: string | null;
+  description?: string | null;
+  priority?: string | null;
+}
+export async function rpcCreateTask(actor: Actor, projectId: string, input: TaskCreateInput): Promise<Task> {
+  const r = await restRpc(
+    "mcp_create_task",
+    {
+      p_project: projectId,
+      p: {
+        phase_id: input.phaseId,
+        name: input.name,
+        purpose: input.purpose ?? "",
+        success_criteria: input.successCriteria ?? "",
+        description: input.description ?? "",
+        priority: input.priority ?? "",
+      },
+      p_actor: actorJson(actor),
+    },
+    { attempts: 1 },
+  );
+  return mapTask(unwrap(r));
+}
+
+export async function rpcDeleteTask(actor: Actor, projectId: string, taskId: string): Promise<void> {
+  await restRpc(
+    "mcp_delete_task",
+    { p_id: taskId, p_project: projectId, p_actor: actorJson(actor) },
+    { attempts: 1 },
+  );
+}
+
+export async function rpcSetCurrentPhase(actor: Actor, projectId: string, phaseId: string): Promise<void> {
+  await restRpc(
+    "mcp_set_current_phase",
+    { p_project: projectId, p_phase: phaseId, p_actor: actorJson(actor) },
+    { attempts: 1 },
+  );
+}
+
+export async function rpcSetCurrentTask(actor: Actor, projectId: string, taskId: string): Promise<void> {
+  await restRpc(
+    "mcp_set_current_task",
+    { p_project: projectId, p_task: taskId, p_actor: actorJson(actor) },
+    { attempts: 1 },
+  );
+}
+
 export async function rpcUpdateTask(
   actor: Actor,
   projectId: string,

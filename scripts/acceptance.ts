@@ -17,6 +17,11 @@ for (const l of readFileSync(".env.local", "utf8").split(/\r?\n/)) {
   if (m) env[m[1]] = m[2].replace(/^["']|["']$/g, "").trim();
 }
 process.env.DATABASE_URL = env.DATABASE_URL;
+// Web writes now go over the shared HTTPS RPC layer (V0.2), so the in-Node data
+// layer needs the same service_role env the worker has. Set BEFORE importing W so
+// lib/core/rest.ts captures them at module load.
+process.env.SUPABASE_URL = env.SUPABASE_URL || env.NEXT_PUBLIC_SUPABASE_URL || "";
+process.env.SUPABASE_SECRET_KEY = env.SUPABASE_SECRET_KEY || "";
 const BASE = process.argv[2] || "http://localhost:3100";
 
 // real app layers

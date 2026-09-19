@@ -30,6 +30,14 @@ import {
   PROPOSAL_TRANSITIONS,
   TASK_TRANSITIONS,
 } from "@/lib/core/state-machines";
+import {
+  rpcCreateTask,
+  rpcDeleteTask,
+  rpcProjectOf,
+  rpcSetCurrentTask,
+  rpcSetTaskStatus,
+  rpcUpdateTask,
+} from "@/lib/data/write-rpc";
 
 export class NotFoundError extends Error {
   constructor(what: string) {
@@ -186,30 +194,13 @@ export interface TaskCreate {
 }
 
 export async function createTask(actor: Actor, input: TaskCreate): Promise<Task> {
-  const db = getDb();
-  return db.transaction(async (tx) => {
-    const [row] = await tx
-      .insert(tasks)
-      .values({
-        projectId: input.projectId,
-        phaseId: input.phaseId,
-        name: input.name,
-        purpose: input.purpose ?? null,
-        successCriteria: input.successCriteria ?? null,
-        description: input.description ?? null,
-        priority: input.priority ?? "MEDIUM",
-      })
-      .returning();
-    await logActivity(tx, {
-      projectId: input.projectId,
-      actor,
-      action: "TASK_CREATED",
-      entityType: "task",
-      entityId: row.id,
-      summary: `创建任务「${row.name}」`,
-      after: { name: row.name, status: row.status },
-    });
-    return row;
+  return rpcCreateTask(actor, input.projectId, {
+    phaseId: input.phaseId,
+    name: input.name,
+    purpose: input.purpose ?? null,
+    successCriteria: input.successCriteria ?? null,
+    description: input.description ?? null,
+    priority: input.priority ?? "MEDIUM",
   });
 }
 
@@ -221,33 +212,18 @@ export async function updateTask(
   >,
   expectedVersion?: number,
 ): Promise<Task> {
-  const db = getDb();
-  return db.transaction(async (tx) => {
-    const clean = { ...patch };
-    if (clean.progress != null) clean.progress = clamp(clean.progress);
-    const conds = [eq(tasks.id, id)];
-    if (expectedVersion != null) conds.push(eq(tasks.version, expectedVersion));
-    const [row] = await tx
-      .update(tasks)
-      .set({ ...clean, version: sql`${tasks.version} + 1`, updatedAt: new Date() })
-      .where(and(...conds))
-      .returning();
-    if (!row) {
-      const [exists] = await tx.select({ id: tasks.id }).from(tasks).where(eq(tasks.id, id));
-      if (!exists) throw new NotFoundError("Task");
-      throw new ConflictError("Task");
-    }
-    await logActivity(tx, {
-      projectId: row.projectId,
-      actor,
-      action: "TASK_UPDATED",
-      entityType: "task",
-      entityId: row.id,
-      summary: `更新任务「${row.name}」`,
-      after: clean,
-    });
-    return row;
-  });
+  // Web call sites carry no projectId; resolve the owner so the RPC can keep its
+  // project-ownership guard. camel patch → snake (RPC reads snake keys).
+  const project = await rpcProjectOf("tasks", id);
+  if (!project) throw new NotFoundError("Task");
+  const p: Record<string, unknown> = {};
+  if (patch.name != null) p.name = patch.name;
+  if (patch.purpose !== undefined) p.purpose = patch.purpose;
+  if (patch.successCriteria !== undefined) p.success_criteria = patch.successCriteria;
+  if (patch.description !== undefined) p.description = patch.description;
+  if (patch.priority != null) p.priority = patch.priority;
+  if (patch.progress != null) p.progress = clamp(patch.progress);
+  return rpcUpdateTask(actor, project, id, p, expectedVersion);
 }
 
 export async function setTaskStatus(
@@ -255,51 +231,15 @@ export async function setTaskStatus(
   id: string,
   to: Task["status"],
 ): Promise<Task> {
-  const db = getDb();
-  return db.transaction(async (tx) => {
-    const [cur] = await tx.select().from(tasks).where(eq(tasks.id, id));
-    if (!cur) throw new NotFoundError("Task");
-    assertTransit("Task", TASK_TRANSITIONS, cur.status, to);
-    const [row] = await tx
-      .update(tasks)
-      .set({
-        status: to,
-        progress: to === "COMPLETED" ? 100 : cur.progress,
-        completedAt: to === "COMPLETED" ? new Date() : cur.completedAt,
-        version: sql`${tasks.version} + 1`,
-        updatedAt: new Date(),
-      })
-      .where(eq(tasks.id, id))
-      .returning();
-    await logActivity(tx, {
-      projectId: cur.projectId,
-      actor,
-      action: "TASK_STATUS",
-      entityType: "task",
-      entityId: row.id,
-      summary: `任务「${row.name}」状态 ${cur.status} → ${to}`,
-      before: { status: cur.status },
-      after: { status: to },
-    });
-    return row;
-  });
+  const project = await rpcProjectOf("tasks", id);
+  if (!project) throw new NotFoundError("Task");
+  return rpcSetTaskStatus(actor, project, id, to);
 }
 
 export async function softDeleteTask(actor: Actor, id: string): Promise<void> {
-  const db = getDb();
-  return db.transaction(async (tx) => {
-    const [cur] = await tx.select().from(tasks).where(eq(tasks.id, id));
-    if (!cur) return;
-    await tx.update(tasks).set({ deletedAt: new Date() }).where(eq(tasks.id, id));
-    await logActivity(tx, {
-      projectId: cur.projectId,
-      actor,
-      action: "TASK_DELETED",
-      entityType: "task",
-      entityId: id,
-      summary: `归档任务「${cur.name}」`,
-    });
-  });
+  const project = await rpcProjectOf("tasks", id);
+  if (!project) return; // absent / already gone — no-op, matching prior behavior
+  await rpcDeleteTask(actor, project, id);
 }
 
 // ───────────────────────── Current position ─────────────────────────
@@ -328,19 +268,7 @@ export async function setCurrentTask(
   projectId: string,
   taskId: string,
 ): Promise<void> {
-  const db = getDb();
-  await db
-    .update(projects)
-    .set({ currentTaskId: taskId, version: sql`${projects.version} + 1`, updatedAt: new Date() })
-    .where(and(eq(projects.id, projectId), isNull(projects.deletedAt)));
-  await logActivity(db, {
-    projectId,
-    actor,
-    action: "PROJECT_SET_TASK",
-    entityType: "project",
-    entityId: projectId,
-    summary: `当前 Task 设为 ${taskId}`,
-  });
+  await rpcSetCurrentTask(actor, projectId, taskId);
 }
 
 // ───────────────────────── Branch ─────────────────────────
