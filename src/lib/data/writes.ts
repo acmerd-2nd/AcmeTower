@@ -1,5 +1,5 @@
 import { and, eq, isNull, sql } from "drizzle-orm";
-import { getDb, type Db } from "@/lib/db/client";
+import { getDb } from "@/lib/db/client";
 import {
   branches,
   checkpoints,
@@ -31,11 +31,14 @@ import {
   TASK_TRANSITIONS,
 } from "@/lib/core/state-machines";
 import {
+  rpcCreateBranch,
   rpcCreatePhase,
   rpcCreateTask,
+  rpcCloseBranch,
   rpcDeletePhase,
   rpcDeleteTask,
   rpcProjectOf,
+  rpcSetBranchStatus,
   rpcSetCurrentPhase,
   rpcSetCurrentTask,
   rpcSetPhaseStatus,
@@ -195,23 +198,6 @@ export async function setCurrentTask(
 }
 
 // ───────────────────────── Branch ─────────────────────────
-async function nodeExists(
-  tx: Pick<Db, "select">,
-  type: "PHASE" | "TASK" | "BRANCH",
-  id: string,
-): Promise<boolean> {
-  if (type === "PHASE") {
-    const [r] = await tx.select({ id: phases.id }).from(phases).where(eq(phases.id, id));
-    return !!r;
-  }
-  if (type === "TASK") {
-    const [r] = await tx.select({ id: tasks.id }).from(tasks).where(eq(tasks.id, id));
-    return !!r;
-  }
-  const [r] = await tx.select({ id: branches.id }).from(branches).where(eq(branches.id, id));
-  return !!r;
-}
-
 export interface BranchCreate {
   projectId: string;
   sourceType: Branch["sourceType"];
@@ -225,46 +211,16 @@ export interface BranchCreate {
 }
 
 export async function createBranch(actor: Actor, input: BranchCreate): Promise<Branch> {
-  if (!input.sourceType || !input.reason?.trim() || !input.goal?.trim()) {
-    throw new Error("分支必须有 Source、Reason 与 Goal");
-  }
-  const db = getDb();
-  return db.transaction(async (tx) => {
-    if (input.sourceType !== "PROJECT" && !(await nodeExists(tx, input.sourceType, input.sourceId))) {
-      throw new NotFoundError(`来源 ${input.sourceType} ${input.sourceId}`);
-    }
-    if (
-      input.returnPointType !== "PROJECT" &&
-      !(await nodeExists(tx, input.returnPointType, input.returnPointId))
-    ) {
-      throw new Error(`INVALID_RETURN_POINT：Return Point ${input.returnPointType} ${input.returnPointId} 不存在`);
-    }
-    const [row] = await tx
-      .insert(branches)
-      .values({
-        projectId: input.projectId,
-        sourceType: input.sourceType,
-        sourceId: input.sourceId,
-        name: input.name,
-        reason: input.reason,
-        goal: input.goal,
-        successCriteria: input.successCriteria ?? null,
-        returnPointType: input.returnPointType,
-        returnPointId: input.returnPointId,
-        createdByType: actor.actorType === "AGENT" ? "AGENT" : "HUMAN",
-        createdById: actor.actorId ?? null,
-      })
-      .returning();
-    await logActivity(tx, {
-      projectId: input.projectId,
-      actor,
-      action: "BRANCH_CREATED",
-      entityType: "branch",
-      entityId: row.id,
-      summary: `创建分支「${row.name}」（来源 ${row.sourceType}，回到 ${row.returnPointType}）`,
-      after: { name: row.name, reason: row.reason, goal: row.goal },
-    });
-    return row;
+  // source/goal/reason presence + node-existence (§37) are enforced inside the RPC.
+  return rpcCreateBranch(actor, input.projectId, {
+    sourceType: input.sourceType,
+    sourceId: input.sourceId,
+    name: input.name,
+    reason: input.reason,
+    goal: input.goal,
+    successCriteria: input.successCriteria ?? null,
+    returnPointType: input.returnPointType,
+    returnPointId: input.returnPointId,
   });
 }
 
@@ -273,33 +229,9 @@ export async function setBranchStatus(
   id: string,
   to: Branch["status"],
 ): Promise<Branch> {
-  const db = getDb();
-  return db.transaction(async (tx) => {
-    const [cur] = await tx.select().from(branches).where(eq(branches.id, id));
-    if (!cur) throw new NotFoundError("Branch");
-    assertTransit("Branch", BRANCH_TRANSITIONS, cur.status, to);
-    const [row] = await tx
-      .update(branches)
-      .set({
-        status: to,
-        closedAt: to === "RESOLVED" || to === "ABANDONED" ? new Date() : cur.closedAt,
-        version: sql`${branches.version} + 1`,
-        updatedAt: new Date(),
-      })
-      .where(eq(branches.id, id))
-      .returning();
-    await logActivity(tx, {
-      projectId: cur.projectId,
-      actor,
-      action: "BRANCH_STATUS",
-      entityType: "branch",
-      entityId: row.id,
-      summary: `分支「${row.name}」状态 ${cur.status} → ${to}`,
-      before: { status: cur.status },
-      after: { status: to },
-    });
-    return row;
-  });
+  const project = await rpcProjectOf("branches", id);
+  if (!project) throw new NotFoundError("Branch");
+  return rpcSetBranchStatus(actor, project, id, to);
 }
 
 export async function closeBranch(
@@ -307,33 +239,9 @@ export async function closeBranch(
   id: string,
   resolution: string,
 ): Promise<Branch> {
-  const db = getDb();
-  return db.transaction(async (tx) => {
-    const [cur] = await tx.select().from(branches).where(eq(branches.id, id));
-    if (!cur) throw new NotFoundError("Branch");
-    assertTransit("Branch", BRANCH_TRANSITIONS, cur.status, "RESOLVED");
-    const [row] = await tx
-      .update(branches)
-      .set({
-        status: "RESOLVED",
-        resolution,
-        closedAt: new Date(),
-        version: sql`${branches.version} + 1`,
-        updatedAt: new Date(),
-      })
-      .where(eq(branches.id, id))
-      .returning();
-    await logActivity(tx, {
-      projectId: cur.projectId,
-      actor,
-      action: "BRANCH_RESOLVED",
-      entityType: "branch",
-      entityId: row.id,
-      summary: `关闭分支「${row.name}」并回到 ${row.returnPointType}`,
-      after: { resolution },
-    });
-    return row;
-  });
+  const project = await rpcProjectOf("branches", id);
+  if (!project) throw new NotFoundError("Branch");
+  return rpcCloseBranch(actor, project, id, resolution);
 }
 
 // ───────────────────────── North Star (governance; Web = human) ─────────────────────────
