@@ -12,7 +12,13 @@
   "hyperdrive": [
     {
       "binding": "HYPERDRIVE",
-      "id": "315233c4d7af44e88cb82c8044323c3a"
+      "id": "315233c4d7af44e88cb82c8044323c3a",
+      // 本地/CI 构建期仿真专用占位串：`wrangler deploy` 会经 opennextjs 调
+      // getPlatformProxy 读取绑定，没有本地连接串时会对 HYPERDRIVE 抛
+      // "no local hyperdrive connection string" 使 CI 构建失败。此处给一个
+      // 语法合法的占位值即可——仅被本地仿真读取，绝不建立连接，也绝不会
+      // 影响线上绑定（线上仍走上面的 id 指向的真实 Hyperdrive），更不含密钥。
+      "localConnectionString": "postgresql://placeholder:placeholder@127.0.0.1:5432/placeholder"
     }
   ],
   "routes": [
