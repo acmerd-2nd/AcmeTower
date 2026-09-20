@@ -10,8 +10,11 @@
 -- to activity_events with source=MCP (§48–§49) — all in ONE transaction, which
 -- PostgREST cannot do with plain REST PATCH/POST.
 --
--- The web app does NOT use these; it keeps Drizzle/Hyperdrive. Only /mcp calls
--- them (via lib/mcp/rest.ts → restRpc).
+-- Consumers: BOTH /mcp and the web app use these (V0.2 converged the shared-domain
+-- writes; V0.3 converged the web reads). The `app_*` section at the bottom carries
+-- the web-only identity/auth writes (login profile mirror, project lifecycle,
+-- agent binding, credential issue/revoke) so the whole web stack stays on HTTPS
+-- and never touches the flaky Hyperdrive tunnel. `app_*` use source=WEB actors.
 --
 -- State-machine edge tables MIRROR src/lib/core/state-machines.ts (§51–§54).
 -- Keep both in sync when a transition changes.
@@ -693,4 +696,240 @@ do $$
 begin
   execute 'revoke all on function public.mcp_upsert_north_star(uuid,jsonb,jsonb) from public';
   execute 'grant execute on function public.mcp_upsert_north_star(uuid,jsonb,jsonb) to service_role';
+end $$;
+
+-- ============================================================================
+-- IDENTITY & AUTH (app_* — web only, V0.3b "web fully off Hyperdrive")
+-- ----------------------------------------------------------------------------
+-- Web-only identity writes that have no /mcp counterpart. SECURITY DEFINER so the
+-- web (service_role over HTTPS PostgREST) can run them atomically without ever
+-- opening the Hyperdrive TCP tunnel that produced the intermittent HTTP 1101 on
+-- create/archive/agent/credential/login. Actors here carry source=WEB.
+-- ============================================================================
+
+-- ── auth profile mirror (runs on every protected request / login) ────────────
+-- Idempotent: return the users row for this auth id, else claim an unlinked row by
+-- email, else insert. Race-safe via the unique(auth_user_id) + unique(email).
+create or replace function public.app_ensure_profile(
+  p_auth_user_id uuid, p_email text, p_name text default null
+) returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
+declare r public.users;
+begin
+  select * into r from public.users where auth_user_id = p_auth_user_id limit 1;
+  if r.id is not null then return to_jsonb(r); end if;
+
+  update public.users
+     set auth_user_id = p_auth_user_id,
+         display_name = coalesce(display_name, p_name),
+         updated_at   = now()
+   where email = p_email and auth_user_id is null
+  returning * into r;
+  if r.id is not null then return to_jsonb(r); end if;
+
+  insert into public.users (auth_user_id, email, display_name)
+    values (p_auth_user_id, p_email, p_name)
+    on conflict (auth_user_id) do nothing
+  returning * into r;
+  if r.id is not null then return to_jsonb(r); end if;
+
+  -- someone else created it concurrently → reselect (by auth id, else by email).
+  select * into r from public.users where auth_user_id = p_auth_user_id limit 1;
+  if r.id is not null then return to_jsonb(r); end if;
+  select * into r from public.users where email = p_email limit 1;
+  if r.id is not null then return to_jsonb(r); end if;
+  raise exception '无法建立用户档案';
+end $$;
+
+-- ── project lifecycle ───────────────────────────────────────────────────────
+-- p keys: name, slug (base), description?, icon?, workspace_slug?, created_by?
+create or replace function public.app_create_project(
+  p jsonb, p_actor jsonb
+) returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
+declare ws uuid; base text; cand text; i int := 0; r public.projects;
+begin
+  select id into ws from public.workspaces
+    where slug = coalesce(nullif(p->>'workspace_slug',''), 'personal');
+  if ws is null then raise exception '工作区不存在'; end if;
+
+  base := coalesce(nullif(p->>'slug',''), 'project');
+  cand := base;
+  loop
+    exit when not exists (select 1 from public.projects where slug = cand);
+    i := i + 1;
+    cand := base || '-' || to_char(floor(extract(epoch from now()) * 1000), 'FM999999999990')
+            || (case when i > 1 then '-' || i::text else '' end);
+  end loop;
+
+  insert into public.projects (workspace_id, name, slug, description, icon, created_by)
+    values (ws, coalesce(nullif(p->>'name',''), '未命名项目'), cand,
+            nullif(p->>'description',''), nullif(p->>'icon',''),
+            nullif(p->>'created_by','')::uuid)
+  returning * into r;
+  perform public.mcp_log(r.id, p_actor, 'PROJECT_CREATED', 'project', r.id,
+    '创建项目「'||r.name||'」', null, jsonb_build_object('name', r.name, 'slug', r.slug));
+  return to_jsonb(r);
+end $$;
+
+create or replace function public.app_set_project_status(
+  p_project uuid, p_status text, p_actor jsonb
+) returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
+declare cur public.projects; r public.projects;
+begin
+  select * into cur from public.projects where id = p_project and deleted_at is null;
+  if cur.id is null then raise exception '项目不存在'; end if;
+  update public.projects set
+    status      = p_status::project_status,
+    archived_at = case when p_status = 'ARCHIVED' then coalesce(archived_at, now()) else null end,
+    version     = version + 1,
+    updated_at  = now()
+  where id = p_project returning * into r;
+  perform public.mcp_log(p_project, p_actor, 'PROJECT_STATUS', 'project', p_project,
+    '项目状态 '||cur.status||' → '||p_status,
+    jsonb_build_object('status', cur.status::text), jsonb_build_object('status', p_status));
+  return to_jsonb(r);
+end $$;
+
+-- ── agents + bindings ──────────────────────────────────────────────────────
+-- p keys: name, provider?, description?, role?, permission_level
+create or replace function public.app_create_agent_and_bind(
+  p_project uuid, p jsonb, p_actor jsonb
+) returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
+declare ag public.agents; lvl permission_level;
+begin
+  if not exists (select 1 from public.projects where id = p_project and deleted_at is null) then
+    raise exception '项目不存在';
+  end if;
+  lvl := coalesce(nullif(p->>'permission_level',''), 'READ')::permission_level;
+  insert into public.agents (name, provider, description, role)
+    values (coalesce(nullif(p->>'name',''), '未命名 Agent'), nullif(p->>'provider',''),
+            nullif(p->>'description',''), nullif(p->>'role',''))
+    returning * into ag;
+  insert into public.project_agents (project_id, agent_id, role, permission_level)
+    values (p_project, ag.id, nullif(p->>'role',''), lvl)
+  on conflict (project_id, agent_id) do update
+    set permission_level = excluded.permission_level, enabled = true;
+  perform public.mcp_log(p_project, p_actor, 'AGENT_BOUND', 'agent', ag.id,
+    '创建并绑定 Agent「'||ag.name||'」('||lvl||')', null,
+    jsonb_build_object('name', ag.name, 'permissionLevel', lvl::text));
+  return to_jsonb(ag);
+end $$;
+
+create or replace function public.app_bind_agent(
+  p_project uuid, p_agent uuid, p_level text, p_actor jsonb
+) returns void language plpgsql security definer set search_path = public, pg_temp as $$
+declare an text; lvl permission_level;
+begin
+  select name into an from public.agents where id = p_agent and deleted_at is null;
+  if an is null then raise exception 'Agent 不存在'; end if;
+  lvl := coalesce(nullif(p_level,''), 'READ')::permission_level;
+  insert into public.project_agents (project_id, agent_id, permission_level)
+    values (p_project, p_agent, lvl)
+  on conflict (project_id, agent_id) do update
+    set permission_level = excluded.permission_level, enabled = true;
+  perform public.mcp_log(p_project, p_actor, 'AGENT_BOUND', 'agent', p_agent,
+    '绑定 Agent「'||an||'」('||lvl||')', null, jsonb_build_object('name', an, 'permissionLevel', lvl::text));
+end $$;
+
+create or replace function public.app_set_agent_permission(
+  p_project uuid, p_agent uuid, p_level text, p_actor jsonb
+) returns void language plpgsql security definer set search_path = public, pg_temp as $$
+declare cur permission_level; lvl permission_level;
+begin
+  select permission_level into cur from public.project_agents
+    where project_id = p_project and agent_id = p_agent;
+  if cur is null then raise exception '绑定不存在'; end if;
+  lvl := coalesce(nullif(p_level,''), cur::text)::permission_level;
+  update public.project_agents set permission_level = lvl
+    where project_id = p_project and agent_id = p_agent;
+  perform public.mcp_log(p_project, p_actor, 'AGENT_PERMISSION', 'agent', p_agent,
+    '调整 Agent 权限 '||cur||' → '||lvl,
+    jsonb_build_object('permissionLevel', cur::text), jsonb_build_object('permissionLevel', lvl::text));
+end $$;
+
+create or replace function public.app_set_agent_enabled(
+  p_project uuid, p_agent uuid, p_enabled boolean, p_actor jsonb
+) returns void language plpgsql security definer set search_path = public, pg_temp as $$
+begin
+  update public.project_agents set enabled = p_enabled
+    where project_id = p_project and agent_id = p_agent;
+  perform public.mcp_log(p_project, p_actor,
+    case when p_enabled then 'AGENT_ENABLED' else 'AGENT_DISABLED' end, 'agent', p_agent,
+    case when p_enabled then '启用 Agent 绑定' else '停用 Agent 绑定' end, null, null);
+end $$;
+
+create or replace function public.app_unbind_agent(
+  p_project uuid, p_agent uuid, p_actor jsonb
+) returns void language plpgsql security definer set search_path = public, pg_temp as $$
+declare an text;
+begin
+  select a.name into an from public.project_agents pa
+    join public.agents a on a.id = pa.agent_id
+    where pa.project_id = p_project and pa.agent_id = p_agent;
+  delete from public.project_agents where project_id = p_project and agent_id = p_agent;
+  perform public.mcp_log(p_project, p_actor, 'AGENT_UNBOUND', 'agent', p_agent,
+    '解绑 Agent' || coalesce('「'||an||'」',''), null, null);
+end $$;
+
+-- ── MCP credentials (token hashed app-side; only hash+prefix stored) ─────────
+-- p keys: name, token_hash, token_prefix, permission_level, agent_id?, expires_at?
+create or replace function public.app_create_credential(
+  p_project uuid, p jsonb, p_actor jsonb
+) returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
+declare r public.mcp_credentials;
+begin
+  if not exists (select 1 from public.projects where id = p_project and deleted_at is null) then
+    raise exception '项目不存在';
+  end if;
+  insert into public.mcp_credentials
+    (project_id, agent_id, name, token_hash, token_prefix, permission_level, expires_at)
+  values (p_project, nullif(p->>'agent_id','')::uuid, coalesce(nullif(p->>'name',''), 'MCP 连接'),
+          p->>'token_hash', coalesce(nullif(p->>'token_prefix',''), ''),
+          coalesce(nullif(p->>'permission_level',''), 'READ')::permission_level,
+          nullif(p->>'expires_at','')::timestamptz)
+  returning * into r;
+  -- audit the CREATION only — never the token/hash. Return a SAFE object (no token_hash).
+  perform public.mcp_log(p_project, p_actor, 'MCP_CREDENTIAL_CREATED', 'mcp_credential', r.id,
+    '创建 MCP 连接「'||r.name||'」('||r.permission_level||')', null,
+    jsonb_build_object('permissionLevel', r.permission_level::text, 'prefix', r.token_prefix));
+  return jsonb_build_object(
+    'id', r.id, 'name', r.name, 'token_prefix', r.token_prefix,
+    'permission_level', r.permission_level::text, 'agent_id', r.agent_id,
+    'created_at', r.created_at, 'last_used_at', r.last_used_at,
+    'expires_at', r.expires_at, 'revoked_at', r.revoked_at);
+end $$;
+
+create or replace function public.app_revoke_credential(
+  p_id uuid, p_project uuid, p_actor jsonb
+) returns void language plpgsql security definer set search_path = public, pg_temp as $$
+declare nm text; rv timestamptz;
+begin
+  select name, revoked_at into nm, rv from public.mcp_credentials
+    where id = p_id and project_id = p_project;
+  if nm is null then raise exception 'MCP 连接不存在'; end if;
+  if rv is null then
+    update public.mcp_credentials set revoked_at = now() where id = p_id;
+    perform public.mcp_log(p_project, p_actor, 'MCP_CREDENTIAL_REVOKED', 'mcp_credential', p_id,
+      '撤销 MCP 连接「'||nm||'」', null, null);
+  end if;  -- idempotent: already revoked → no-op
+end $$;
+
+-- grants for the app_* section
+do $$
+declare fn text;
+begin
+  foreach fn in array array[
+    'app_ensure_profile(uuid,text,text)',
+    'app_create_project(jsonb,jsonb)',
+    'app_set_project_status(uuid,text,jsonb)',
+    'app_create_agent_and_bind(uuid,jsonb,jsonb)',
+    'app_bind_agent(uuid,uuid,text,jsonb)',
+    'app_set_agent_permission(uuid,uuid,text,jsonb)',
+    'app_set_agent_enabled(uuid,uuid,boolean,jsonb)',
+    'app_unbind_agent(uuid,uuid,jsonb)',
+    'app_create_credential(uuid,jsonb,jsonb)',
+    'app_revoke_credential(uuid,uuid,jsonb)'
+  ] loop
+    execute format('revoke all on function public.%s from public', fn);
+    execute format('grant execute on function public.%s to service_role', fn);
+  end loop;
 end $$;

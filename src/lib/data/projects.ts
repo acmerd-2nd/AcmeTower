@@ -1,7 +1,7 @@
-import { eq, sql } from "drizzle-orm";
-import { getDb } from "@/lib/db/client";
-import { projects, workspaces, type Project } from "@/lib/db/schema";
 import { httpProjectCards } from "@/lib/mcp/httpdata";
+import { rpcCreateProject, rpcSetProjectStatus } from "@/lib/data/app-rpc";
+import type { Actor } from "@/lib/core/audit";
+import type { Project } from "@/lib/db/schema";
 
 export type ProjectStatusFilter =
   | "ALL"
@@ -53,54 +53,28 @@ export interface NewProjectInput {
   createdBy?: string | null;
 }
 
-export async function createProject(input: NewProjectInput): Promise<Project> {
-  const db = getDb();
-  const [w] = await db
-    .select()
-    .from(workspaces)
-    .where(eq(workspaces.slug, input.workspaceSlug ?? "personal"));
-  if (!w) throw new Error(`workspace "${input.workspaceSlug ?? "personal"}" not found`);
-
-  const [row] = await db
-    .insert(projects)
-    .values({
-      workspaceId: w.id,
-      name: input.name,
-      slug: await uniqueSlug(input.slug),
-      description: input.description ?? null,
-      icon: input.icon ?? null,
-      createdBy: input.createdBy ?? null,
-    })
-    .returning();
-  return row;
-}
-
-async function uniqueSlug(base: string): Promise<string> {
-  const db = getDb();
-  const clean =
-    base
-      .trim()
+/**
+ * Create a project over HTTPS RPC (V0.3b): workspace resolution + unique-slug
+ * allocation + insert + audit all happen atomically in `app_create_project`, so
+ * "新建项目" never touches the Hyperdrive tunnel that caused HTTP 1101.
+ */
+export async function createProject(actor: Actor, input: NewProjectInput): Promise<Project> {
+  const base =
+    input.slug
+      ?.trim()
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-+|-+$/g, "") || "project";
-  let candidate = clean;
-  for (let i = 0; i < 50; i++) {
-    const [existing] = await db.select({ id: projects.id }).from(projects).where(eq(projects.slug, candidate));
-    if (!existing) return candidate;
-    candidate = `${clean}-${Date.now().toString(36)}${i ? `-${i}` : ""}`;
-  }
-  throw new Error("could not allocate a unique slug");
+  return rpcCreateProject(actor, {
+    name: input.name,
+    slug: base,
+    description: input.description ?? null,
+    icon: input.icon ?? null,
+    workspaceSlug: input.workspaceSlug,
+    createdBy: input.createdBy ?? actor.actorId ?? null,
+  });
 }
 
-export async function setProjectStatus(id: string, status: Project["status"]): Promise<void> {
-  const db = getDb();
-  await db
-    .update(projects)
-    .set({
-      status,
-      archivedAt: status === "ARCHIVED" ? new Date() : null,
-      version: sql`${projects.version} + 1`,
-      updatedAt: new Date(),
-    })
-    .where(eq(projects.id, id));
+export async function setProjectStatus(actor: Actor, id: string, status: Project["status"]): Promise<void> {
+  await rpcSetProjectStatus(actor, id, status);
 }

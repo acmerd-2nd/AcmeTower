@@ -3,15 +3,15 @@
  * surface. A credential is scoped to one project + one permission level; its bearer
  * token is generated here, hashed, and returned ONCE. Only the SHA-256 digest and a
  * display prefix are ever stored — the plaintext is never persisted or re-listed.
- * Creation/revocation are audited through the same logActivity as everything else.
+ * Creation/revocation are audited through the same activity_events stream, but via
+ * the HTTPS SECURITY DEFINER `app_create_credential` / `app_revoke_credential` RPCs
+ * (V0.3b) so this web-only path never touches Hyperdrive.
  */
-import { and, eq } from "drizzle-orm";
-import { getDb } from "@/lib/db/client";
-import { mcpCredentials } from "@/lib/db/schema";
-import { logActivity, type Actor } from "@/lib/core/audit";
-import { NotFoundError } from "@/lib/data/writes";
+import type { Actor } from "@/lib/core/audit";
+import type { Row } from "@/lib/core/rows";
 import { generateToken, hashToken, tokenPrefix } from "@/lib/mcp/token";
 import { httpCredentialRows, httpProjectAgentOptions } from "@/lib/mcp/httpdata";
+import { rpcCreateCredential, rpcRevokeCredential } from "@/lib/data/app-rpc";
 
 export type CredentialStatus = "ACTIVE" | "EXPIRED" | "REVOKED";
 
@@ -52,6 +52,23 @@ export interface CredentialCreate {
   expiresAt?: Date | null;
 }
 
+/** Map the RPC's safe (non-secret) snake row into CredentialRow. */
+function toCredential(r: Row): CredentialRow {
+  const d = (v: unknown): Date | null => (v == null ? null : new Date(String(v)));
+  return {
+    id: String(r.id),
+    name: String(r.name ?? ""),
+    tokenPrefix: String(r.token_prefix ?? ""),
+    permissionLevel: (r.permission_level ?? "READ") as CredentialRow["permissionLevel"],
+    agentId: r.agent_id == null ? null : String(r.agent_id),
+    createdAt: d(r.created_at) ?? new Date(),
+    lastUsedAt: d(r.last_used_at),
+    expiresAt: d(r.expires_at),
+    revokedAt: d(r.revoked_at),
+    agentName: null,
+  };
+}
+
 /** Mint a credential; returns the stored row AND the plaintext token (shown once). */
 export async function createCredential(
   actor: Actor,
@@ -60,64 +77,18 @@ export async function createCredential(
   const token = generateToken();
   const hash = await hashToken(token);
   const prefix = tokenPrefix(token);
-  const db = getDb();
-  const row = await db.transaction(async (tx) => {
-    const [r] = await tx
-      .insert(mcpCredentials)
-      .values({
-        projectId: input.projectId,
-        name: input.name,
-        tokenHash: hash,
-        tokenPrefix: prefix,
-        permissionLevel: input.permissionLevel,
-        agentId: input.agentId ?? null,
-        expiresAt: input.expiresAt ?? null,
-      })
-      .returning({
-        id: mcpCredentials.id,
-        name: mcpCredentials.name,
-        tokenPrefix: mcpCredentials.tokenPrefix,
-        permissionLevel: mcpCredentials.permissionLevel,
-        agentId: mcpCredentials.agentId,
-        createdAt: mcpCredentials.createdAt,
-        lastUsedAt: mcpCredentials.lastUsedAt,
-        expiresAt: mcpCredentials.expiresAt,
-        revokedAt: mcpCredentials.revokedAt,
-      });
-    // Audit the CREATION only — never the token, hash, or full value.
-    await logActivity(tx, {
-      projectId: input.projectId,
-      actor,
-      action: "MCP_CREDENTIAL_CREATED",
-      entityType: "mcp_credential",
-      entityId: r.id,
-      summary: `创建 MCP 连接「${r.name}」(${r.permissionLevel})`,
-      after: { permissionLevel: r.permissionLevel, prefix: r.tokenPrefix },
-    });
-    return { ...r, agentName: null as string | null };
+  const row = await rpcCreateCredential(actor, input.projectId, {
+    name: input.name,
+    tokenHash: hash,
+    tokenPrefix: prefix,
+    permissionLevel: input.permissionLevel,
+    agentId: input.agentId ?? null,
+    expiresAt: input.expiresAt ?? null,
   });
-  return { row, token };
+  return { row: toCredential(row), token };
 }
 
 /** Revoke a credential (must belong to this project). Idempotent. */
 export async function revokeCredential(actor: Actor, id: string, projectId: string): Promise<void> {
-  const db = getDb();
-  await db.transaction(async (tx) => {
-    const [cur] = await tx
-      .select()
-      .from(mcpCredentials)
-      .where(and(eq(mcpCredentials.id, id), eq(mcpCredentials.projectId, projectId)));
-    if (!cur) throw new NotFoundError("MCP 连接");
-    if (!cur.revokedAt) {
-      await tx.update(mcpCredentials).set({ revokedAt: new Date() }).where(eq(mcpCredentials.id, id));
-      await logActivity(tx, {
-        projectId,
-        actor,
-        action: "MCP_CREDENTIAL_REVOKED",
-        entityType: "mcp_credential",
-        entityId: id,
-        summary: `撤销 MCP 连接「${cur.name}」`,
-      });
-    }
-  });
+  await rpcRevokeCredential(actor, id, projectId);
 }

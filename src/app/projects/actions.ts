@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { getCurrentProfile } from "@/lib/auth/session";
+import { requireWebActor } from "@/lib/core/actor";
 import { createProject, setProjectStatus } from "@/lib/data/projects";
 
 function slugify(s: string) {
@@ -15,14 +15,8 @@ function slugify(s: string) {
   );
 }
 
-async function requireActor() {
-  const profile = await getCurrentProfile();
-  if (!profile) redirect("/login");
-  return profile;
-}
-
 export async function createProjectAction(formData: FormData) {
-  const profile = await requireActor();
+  const actor = await requireWebActor();
   const name = String(formData.get("name") ?? "").trim();
   if (!name) redirect("/projects/new?error=name");
   const rawSlug = String(formData.get("slug") ?? "").trim();
@@ -30,30 +24,36 @@ export async function createProjectAction(formData: FormData) {
   const icon = String(formData.get("icon") ?? "").trim() || null;
   const workspaceSlug = String(formData.get("workspaceSlug") ?? "").trim() || "personal";
 
-  const project = await createProject({
-    name,
-    slug: slugify(rawSlug || name),
-    description,
-    icon,
-    workspaceSlug,
-    createdBy: profile.id,
-  });
+  let projectId: string;
+  try {
+    const project = await createProject(actor, {
+      name,
+      slug: slugify(rawSlug || name),
+      description,
+      icon,
+      workspaceSlug,
+      createdBy: actor.actorId,
+    });
+    projectId = project.id;
+  } catch (e) {
+    redirect(`/projects/new?error=${encodeURIComponent((e as Error).message ?? "创建失败")}`);
+  }
   revalidatePath("/projects");
-  redirect(`/projects/${project.id}`);
+  redirect(`/projects/${projectId}`);
 }
 
 export async function archiveProjectAction(formData: FormData) {
-  await requireActor();
+  const actor = await requireWebActor();
   const id = String(formData.get("id") ?? "");
   if (!id) return;
-  await setProjectStatus(id, "ARCHIVED");
+  await setProjectStatus(actor, id, "ARCHIVED");
   revalidatePath("/projects");
 }
 
 export async function restoreProjectAction(formData: FormData) {
-  await requireActor();
+  const actor = await requireWebActor();
   const id = String(formData.get("id") ?? "");
   if (!id) return;
-  await setProjectStatus(id, "ACTIVE");
+  await setProjectStatus(actor, id, "ACTIVE");
   revalidatePath("/projects");
 }

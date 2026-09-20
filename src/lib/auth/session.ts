@@ -1,8 +1,7 @@
-import { eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
-import { getDb } from "@/lib/db/client";
-import { users, type User } from "@/lib/db/schema";
+import type { User } from "@/lib/db/schema";
 import { createClient } from "./server";
+import { rpcEnsureProfile } from "@/lib/data/app-rpc";
 
 // The authenticated Supabase user (may be null).
 export async function getSessionUser() {
@@ -16,36 +15,13 @@ export async function getSessionUser() {
 // Ensure a public.users row mirrors auth.users (link by auth_user_id). Idempotent.
 // If a matching row exists by email but isn't linked yet (e.g. the seeded owner),
 // claim it by setting auth_user_id, avoiding the unique-email conflict.
+// Runs over HTTPS RPC (V0.3b) so this per-request path never touches Hyperdrive.
 export async function ensureProfile(
   authUserId: string,
   email: string,
   name?: string,
 ): Promise<User> {
-  const db = getDb();
-  const [byAuth] = await db.select().from(users).where(eq(users.authUserId, authUserId));
-  if (byAuth) return byAuth;
-
-  const [byEmail] = await db.select().from(users).where(eq(users.email, email));
-  if (byEmail) {
-    const [linked] = await db
-      .update(users)
-      .set({
-        authUserId,
-        displayName: byEmail.displayName ?? name ?? null,
-      })
-      .where(eq(users.id, byEmail.id))
-      .returning();
-    return linked ?? byEmail;
-  }
-
-  const [created] = await db
-    .insert(users)
-    .values({ authUserId, email, displayName: name ?? null })
-    .onConflictDoNothing()
-    .returning();
-  if (created) return created;
-  const [row] = await db.select().from(users).where(eq(users.authUserId, authUserId));
-  return row!;
+  return rpcEnsureProfile(authUserId, email, name ?? null);
 }
 
 export async function getCurrentProfile(): Promise<User | null> {

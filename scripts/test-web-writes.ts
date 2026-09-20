@@ -27,7 +27,7 @@ const { httpNorthStar } = await import("@/lib/mcp/httpdata");
 const sql = postgres(env.DATABASE_URL, { ssl: { require: true }, max: 1, connect_timeout: 25 });
 const human = { actorType: "HUMAN", actorLabel: "web-write-test", source: "WEB" } as const;
 const rnd = randomBytes(3).toString("hex");
-const proj = await P.createProject({ name: `ww ${rnd}`, slug: `ww-${rnd}` });
+const proj = await P.createProject(human, { name: `ww ${rnd}`, slug: `ww-${rnd}` });
 
 let failures = 0;
 const check = (name: string, cond: boolean) => {

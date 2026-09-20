@@ -5,16 +5,20 @@
  * project. All writes share the audit stream; permission level mirrors §29 and never
  * grants GOVERNANCE to an agent (that stays human-only).
  */
-import { and, eq } from "drizzle-orm";
-import { getDb } from "@/lib/db/client";
-import { agents, projectAgents, type Agent } from "@/lib/db/schema";
-import { logActivity, type Actor } from "@/lib/core/audit";
-import { NotFoundError } from "@/lib/data/writes";
+import type { Actor } from "@/lib/core/audit";
+import type { Agent } from "@/lib/db/schema";
 import {
   httpBoundAgentNames,
   httpProjectAgentRows,
   httpUnboundAgentRows,
 } from "@/lib/mcp/httpdata";
+import {
+  rpcBindAgent,
+  rpcCreateAgentBind,
+  rpcSetAgentEnabled,
+  rpcSetAgentPermission,
+  rpcUnbindAgent,
+} from "@/lib/data/app-rpc";
 
 type PermissionLevel = "READ" | "WORKING_WRITE" | "STRUCTURAL_WRITE" | "GOVERNANCE";
 
@@ -39,7 +43,7 @@ export async function unboundAgents(projectId: string) {
   return httpUnboundAgentRows(projectId);
 }
 
-/** Create a new Agent AND bind it to the project with a permission in one tx. */
+/** Create a new Agent AND bind it to the project with a permission — one HTTPS RPC (V0.3b). */
 export async function createAndBindAgent(
   actor: Actor,
   input: {
@@ -51,69 +55,24 @@ export async function createAndBindAgent(
     permissionLevel: PermissionLevel;
   },
 ): Promise<{ agent: Agent }> {
-  const db = getDb();
-  return db.transaction(async (tx) => {
-    const [agent] = await tx
-      .insert(agents)
-      .values({
-        name: input.name,
-        provider: input.provider ?? null,
-        description: input.description ?? null,
-        role: input.role ?? null,
-      })
-      .returning();
-    await tx.insert(projectAgents).values({
-      projectId: input.projectId,
-      agentId: agent.id,
-      role: input.role ?? null,
-      permissionLevel: input.permissionLevel,
-    });
-    await logActivity(tx, {
-      projectId: input.projectId,
-      actor,
-      action: "AGENT_BOUND",
-      entityType: "agent",
-      entityId: agent.id,
-      summary: `创建并绑定 Agent「${agent.name}」(${input.permissionLevel})`,
-      after: { name: agent.name, permissionLevel: input.permissionLevel },
-    });
-    return { agent };
+  const agent = await rpcCreateAgentBind(actor, input.projectId, {
+    name: input.name,
+    provider: input.provider ?? null,
+    description: input.description ?? null,
+    role: input.role ?? null,
+    permissionLevel: input.permissionLevel,
   });
+  return { agent };
 }
 
-/** Attach an existing global agent to the project. No-op if already bound. */
+/** Attach an existing global agent to the project (upsert binding). */
 export async function bindExistingAgent(
   actor: Actor,
   projectId: string,
   agentId: string,
   permissionLevel: PermissionLevel,
 ): Promise<void> {
-  const db = getDb();
-  const [agent] = await db.select().from(agents).where(eq(agents.id, agentId));
-  if (!agent) throw new NotFoundError("Agent");
-  await db.transaction(async (tx) => {
-    const [existing] = await tx
-      .select({ agentId: projectAgents.agentId })
-      .from(projectAgents)
-      .where(and(eq(projectAgents.projectId, projectId), eq(projectAgents.agentId, agentId)));
-    if (!existing) {
-      await tx.insert(projectAgents).values({ projectId, agentId, permissionLevel });
-    } else {
-      await tx
-        .update(projectAgents)
-        .set({ permissionLevel, enabled: true })
-        .where(and(eq(projectAgents.projectId, projectId), eq(projectAgents.agentId, agentId)));
-    }
-    await logActivity(tx, {
-      projectId,
-      actor,
-      action: "AGENT_BOUND",
-      entityType: "agent",
-      entityId: agentId,
-      summary: `绑定 Agent「${agent.name}」(${permissionLevel})`,
-      after: { name: agent.name, permissionLevel },
-    });
-  });
+  await rpcBindAgent(actor, projectId, agentId, permissionLevel);
 }
 
 /** Change an agent's permission within this project (§29). */
@@ -123,28 +82,7 @@ export async function setAgentPermission(
   agentId: string,
   permissionLevel: PermissionLevel,
 ): Promise<void> {
-  const db = getDb();
-  await db.transaction(async (tx) => {
-    const [cur] = await tx
-      .select()
-      .from(projectAgents)
-      .where(and(eq(projectAgents.projectId, projectId), eq(projectAgents.agentId, agentId)));
-    if (!cur) throw new NotFoundError("绑定");
-    await tx
-      .update(projectAgents)
-      .set({ permissionLevel })
-      .where(and(eq(projectAgents.projectId, projectId), eq(projectAgents.agentId, agentId)));
-    await logActivity(tx, {
-      projectId,
-      actor,
-      action: "AGENT_PERMISSION",
-      entityType: "agent",
-      entityId: agentId,
-      summary: `调整 Agent 权限 ${cur.permissionLevel} → ${permissionLevel}`,
-      before: { permissionLevel: cur.permissionLevel },
-      after: { permissionLevel },
-    });
-  });
+  await rpcSetAgentPermission(actor, projectId, agentId, permissionLevel);
 }
 
 /** Toggle whether the binding is active (soft — keeps history, blocks use). */
@@ -154,42 +92,12 @@ export async function setAgentEnabled(
   agentId: string,
   enabled: boolean,
 ): Promise<void> {
-  const db = getDb();
-  await db
-    .update(projectAgents)
-    .set({ enabled })
-    .where(and(eq(projectAgents.projectId, projectId), eq(projectAgents.agentId, agentId)));
-  await logActivity(db, {
-    projectId,
-    actor,
-    action: enabled ? "AGENT_ENABLED" : "AGENT_DISABLED",
-    entityType: "agent",
-    entityId: agentId,
-    summary: `${enabled ? "启用" : "停用"} Agent 绑定`,
-  });
+  await rpcSetAgentEnabled(actor, projectId, agentId, enabled);
 }
 
 /** Remove the project<->agent binding (does not delete the global Agent). */
 export async function unbindAgent(actor: Actor, projectId: string, agentId: string): Promise<void> {
-  const db = getDb();
-  await db.transaction(async (tx) => {
-    const [cur] = await tx
-      .select({ name: agents.name })
-      .from(projectAgents)
-      .innerJoin(agents, eq(agents.id, projectAgents.agentId))
-      .where(and(eq(projectAgents.projectId, projectId), eq(projectAgents.agentId, agentId)));
-    await tx
-      .delete(projectAgents)
-      .where(and(eq(projectAgents.projectId, projectId), eq(projectAgents.agentId, agentId)));
-    await logActivity(tx, {
-      projectId,
-      actor,
-      action: "AGENT_UNBOUND",
-      entityType: "agent",
-      entityId: agentId,
-      summary: `解绑 Agent${cur?.name ? `「${cur.name}」` : ""}`,
-    });
-  });
+  await rpcUnbindAgent(actor, projectId, agentId);
 }
 
 /** Names of agents bound to a project (for labels). */

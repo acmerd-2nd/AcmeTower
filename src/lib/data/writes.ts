@@ -1,14 +1,10 @@
-import { and, eq, isNull } from "drizzle-orm";
-import { getDb } from "@/lib/db/client";
 import {
-  projects,
   type Branch,
   type Checkpoint,
   type Decision,
   type Issue,
   type NorthStar,
   type Phase,
-  type Project,
   type Proposal,
   type Task,
 } from "@/lib/db/schema";
@@ -251,17 +247,6 @@ export async function upsertNorthStar(
   if (patch.nonGoals !== undefined) p.non_goals = patch.nonGoals;
   if (patch.constraints !== undefined) p.constraints = patch.constraints;
   return rpcUpsertNorthStar(actor, projectId, p);
-}
-
-// re-export for callers needing project existence checks
-export async function assertProjectExists(projectId: string): Promise<Project> {
-  const db = getDb();
-  const [p] = await db
-    .select()
-    .from(projects)
-    .where(and(eq(projects.id, projectId), isNull(projects.deletedAt)));
-  if (!p) throw new NotFoundError("Project");
-  return p;
 }
 
 // ───────────────────────── Issue ─────────────────────────

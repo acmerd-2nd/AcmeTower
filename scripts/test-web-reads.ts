@@ -39,7 +39,7 @@ const check = (name: string, cond: boolean) => {
   if (!cond) failures++;
 };
 
-const proj = await P.createProject({ name: `wr ${rnd}`, slug: `wr-${rnd}` });
+const proj = await P.createProject(human, { name: `wr ${rnd}`, slug: `wr-${rnd}` });
 const agentName = `ag-${rnd}`;
 const { agent } = await AG.createAndBindAgent(human, {
   projectId: proj.id,

@@ -68,7 +68,7 @@ const createdAgents: string[] = [];
 try {
   // fixtures: 3 fresh projects
   const mk = async (i: number) => {
-    const x = await P.createProject({ name: `验收 P${i + 1} ${rnd}`, slug: `acc-p${i + 1}-${rnd}`, description: "acceptance" });
+    const x = await P.createProject({ actorType: "HUMAN", actorLabel: "acceptance", source: "WEB" }, { name: `验收 P${i + 1} ${rnd}`, slug: `acc-p${i + 1}-${rnd}`, description: "acceptance" });
     createdProjects.push(x.id);
     return x;
   };
