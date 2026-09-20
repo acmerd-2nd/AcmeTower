@@ -1,8 +1,6 @@
-import { eq } from "drizzle-orm";
 import { ErrorBanner, Submit, TextArea, TextField } from "@/components/form-bits";
 import { northStarAction } from "@/lib/actions/write";
-import { getDb } from "@/lib/db/client";
-import { northStars } from "@/lib/db/schema";
+import { httpNorthStar } from "@/lib/mcp/httpdata";
 
 export const dynamic = "force-dynamic";
 
@@ -15,8 +13,7 @@ export default async function SettingsPage({
 }) {
   const { projectId } = await params;
   const { error } = await searchParams;
-  const db = getDb();
-  const [ns] = await db.select().from(northStars).where(eq(northStars.projectId, projectId));
+  const ns = await httpNorthStar(projectId);
 
   return (
     <div>

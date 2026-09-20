@@ -1,9 +1,7 @@
-import { eq } from "drizzle-orm";
 import { ActionButton } from "@/components/action-button";
 import { ErrorBanner, StatusPill, Submit, TextArea, TextField } from "@/components/form-bits";
 import { phaseAction } from "@/lib/actions/write";
-import { getDb } from "@/lib/db/client";
-import { projects } from "@/lib/db/schema";
+import { httpProjectRow } from "@/lib/mcp/httpdata";
 import { listPhaseRows } from "@/lib/data/reads";
 import { PHASE_TRANSITIONS } from "@/lib/core/state-machines";
 
@@ -19,11 +17,7 @@ export default async function RoadmapPage({
   const { projectId } = await params;
   const { error } = await searchParams;
   const rows = await listPhaseRows(projectId);
-  const db = getDb();
-  const [project] = await db
-    .select({ currentPhaseId: projects.currentPhaseId })
-    .from(projects)
-    .where(eq(projects.id, projectId));
+  const project = await httpProjectRow(projectId);
 
   return (
     <div>

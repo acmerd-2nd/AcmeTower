@@ -1,8 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { and, eq, isNull } from "drizzle-orm";
-import { getDb } from "@/lib/db/client";
-import { projects } from "@/lib/db/schema";
+import { httpProjectRow } from "@/lib/mcp/httpdata";
 import { ProjectNav } from "@/components/project-nav";
 
 export const dynamic = "force-dynamic";
@@ -15,11 +13,7 @@ export default async function ProjectSpaceLayout({
   params: Promise<{ projectId: string }>;
 }) {
   const { projectId } = await params;
-  const db = getDb();
-  const [project] = await db
-    .select({ id: projects.id, name: projects.name, icon: projects.icon, status: projects.status })
-    .from(projects)
-    .where(and(eq(projects.id, projectId), isNull(projects.deletedAt)));
+  const project = await httpProjectRow(projectId);
   if (!project) notFound();
 
   return (

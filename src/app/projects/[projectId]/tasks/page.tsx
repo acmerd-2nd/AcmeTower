@@ -1,9 +1,7 @@
-import { eq } from "drizzle-orm";
 import { ActionButton } from "@/components/action-button";
 import { ErrorBanner, SelectField, StatusPill, Submit, TextArea, TextField } from "@/components/form-bits";
 import { taskAction } from "@/lib/actions/write";
-import { getDb } from "@/lib/db/client";
-import { projects } from "@/lib/db/schema";
+import { httpProjectRow } from "@/lib/mcp/httpdata";
 import { listTaskRows, phaseOptions } from "@/lib/data/reads";
 import { TASK_TRANSITIONS } from "@/lib/core/state-machines";
 
@@ -19,11 +17,7 @@ export default async function TasksPage({
   const { projectId } = await params;
   const { error } = await searchParams;
   const [rows, phases] = await Promise.all([listTaskRows(projectId), phaseOptions(projectId)]);
-  const db = getDb();
-  const [project] = await db
-    .select({ currentTaskId: projects.currentTaskId })
-    .from(projects)
-    .where(eq(projects.id, projectId));
+  const project = await httpProjectRow(projectId);
 
   return (
     <div>
