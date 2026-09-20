@@ -93,9 +93,35 @@ export default async function ProjectsPage({
       </div>
 
       {cards.length === 0 ? (
-        <div className="mt-16 rounded-xl border border-dashed border-zinc-300 p-12 text-center text-zinc-500 dark:border-zinc-700">
-          没有匹配的项目。
-        </div>
+        (() => {
+          const filtering = !!q?.trim() || (!!status && status !== "ALL");
+          return filtering ? (
+            <div className="mt-16 flex flex-col items-center rounded-xl border border-dashed border-zinc-300 px-6 py-14 text-center dark:border-zinc-700">
+              <div className="text-3xl" aria-hidden>🔍</div>
+              <p className="mt-3 text-sm text-zinc-600 dark:text-zinc-400">没有匹配的项目。</p>
+              <Link href="/projects" className="mt-4 text-sm font-medium text-zinc-900 underline underline-offset-2 dark:text-zinc-100">
+                清除筛选条件
+              </Link>
+            </div>
+          ) : (
+            <div className="mt-12 flex flex-col items-center rounded-2xl border border-zinc-200 bg-zinc-50/60 px-6 py-16 text-center dark:border-zinc-800 dark:bg-zinc-900/40">
+              <div className="text-4xl" aria-hidden>🗼</div>
+              <h2 className="mt-4 text-lg font-semibold tracking-tight">从第一个项目开始</h2>
+              <p className="mt-1.5 max-w-md text-sm leading-relaxed text-zinc-500">
+                为项目写下唯一的 North Star，拆出主线与任务，再让你电脑上的 AI Agent 通过 MCP 连接进来，与你一起持续推进、随时回收进展。
+              </p>
+              <Link
+                href="/projects/new"
+                className="mt-6 rounded-md bg-zinc-900 px-5 py-2.5 text-sm font-medium text-white hover:bg-zinc-700 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-white"
+              >
+                + 新建项目
+              </Link>
+              <Link href="/help" className="mt-3 text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100">
+                看看使用指南 →
+              </Link>
+            </div>
+          );
+        })()
       ) : (
         <div className="mt-8 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {cards.map((c) => (
