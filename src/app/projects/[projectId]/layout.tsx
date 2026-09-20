@@ -24,12 +24,17 @@ export default async function ProjectSpaceLayout({
 
   return (
     <div className="mx-auto w-full max-w-6xl px-6 py-8">
-      <nav className="text-sm text-zinc-500">
-        <Link href="/projects" className="hover:text-zinc-900 dark:hover:text-zinc-100">
-          我的项目
+      <nav className="flex items-center justify-between text-sm text-zinc-500">
+        <div>
+          <Link href="/projects" className="hover:text-zinc-900 dark:hover:text-zinc-100">
+            我的项目
+          </Link>
+          <span className="mx-2">/</span>
+          <span className="text-zinc-800 dark:text-zinc-200">{project.name}</span>
+        </div>
+        <Link href="/help" className="hover:text-zinc-900 dark:hover:text-zinc-100">
+          使用指南
         </Link>
-        <span className="mx-2">/</span>
-        <span className="text-zinc-800 dark:text-zinc-200">{project.name}</span>
       </nav>
 
       <header className="mt-2 flex items-center gap-2">

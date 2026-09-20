@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Suspense } from "react";
 import { LoginForm } from "./login-form";
 
@@ -20,6 +21,11 @@ export default async function LoginPage({
         <Suspense>
           <LoginForm next={next} />
         </Suspense>
+        <div className="mt-6 text-center">
+          <Link href="/help" className="text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100">
+            使用指南 →
+          </Link>
+        </div>
       </div>
     </main>
   );
