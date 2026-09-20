@@ -250,7 +250,7 @@ export default function HelpPage() {
               <li>创建 Agent（或直接绑定一个已有 Agent 到本项目）。</li>
               <li>为它在<strong>本项目</strong>授予一个权限级别（不同项目可不同）。</li>
               <li>点“生成 MCP 连接”，得到一枚令牌——<strong>只显示一次</strong>，请立即复制保存。</li>
-              <li>把下面的配置交给 Agent（多数 MCP 客户端支持 JSON 配置）；撤销随时可在此页进行。</li>
+              <li>最省事：Agents 页有「转发给本地 Agent · 一键接入」块，一键复制“操作指引 + 该项目的 mcpServers 配置 + 令牌”，把这段直接发给装在你电脑上的 Agent，它就知道如何连接本项目并推进；撤销随时可在此页进行。</li>
             </ol>
 
             <pre className="overflow-x-auto rounded-xl border border-zinc-200 bg-zinc-950 p-4 text-[13px] leading-relaxed text-zinc-100 dark:border-zinc-800">

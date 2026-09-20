@@ -21,6 +21,7 @@ import {
   type CredentialStatus,
 } from "@/lib/data/credentials";
 import { listProjectAgents, unboundAgents } from "@/lib/data/agents";
+import { httpProjectRow } from "@/lib/mcp/httpdata";
 
 export const dynamic = "force-dynamic";
 
@@ -73,11 +74,12 @@ export default async function AgentsPage({
 }) {
   const { projectId } = await params;
   const { error } = await searchParams;
-  const [creds, agentOpts, boundAgents, attachable, jar] = await Promise.all([
+  const [creds, agentOpts, boundAgents, attachable, project, jar] = await Promise.all([
     listCredentials(projectId),
     projectAgentOptions(projectId),
     listProjectAgents(projectId),
     unboundAgents(projectId),
+    httpProjectRow(projectId),
     cookies(),
   ]);
 
@@ -103,6 +105,27 @@ export default async function AgentsPage({
   } catch {
     reveal = null;
   }
+
+  // 一键接入包：中文操作指引 + 含令牌的 MCP 配置，用户复制后直接转发给本地 Agent。
+  const projectName = project?.name ?? "本项目";
+  const bearerToken = reveal?.token ?? "<在此粘贴下方生成的令牌>";
+  const configWithToken = JSON.stringify(
+    { mcpServers: { acmetower: { url: mcpUrl, headers: { Authorization: `Bearer ${bearerToken}` } } } },
+    null,
+    2,
+  );
+  const onboardingText = [
+    `你正在通过 AcmeTower 的 MCP 网关管理项目「${projectName}」，与人类共享同一份项目状态。请按以下方式工作：`,
+    `1. 开工前先调用 project_get_context 和 project_get_current_mission，读清 North Star、当前阶段(Phase)/任务(Task)，以及“当前使命”（目标、成功标准、不要做什么、完成后回到哪里）。`,
+    `2. 严守范围：只做当前使命/任务范围内的事；拿不准是否偏航就 project_check_drift；需要改变方向，或触碰 North Star / 决策等治理内容时，用 project_create_proposal 提交给人批准，不要擅自更改。`,
+    `3. 推进：用 project_update_task 更新任务状态与进度；需要探索时 project_create_branch，得出结论后用 project_close_branch 回收、把结果带回主线。`,
+    `4. 汇报：阶段性成果或告一段落，用 project_create_checkpoint 记录进展；发现问题用 project_create_issue。`,
+    `5. 并发：写操作遵循乐观锁(version)；若报版本冲突，先重新读取最新状态再改。只使用你被授予的权限。`,
+    `6. 全程用中文，简洁说明你做了什么、结果如何、下一步是什么。`,
+    ``,
+    `【MCP 连接配置】把下面这段并入你的 MCP 客户端配置即可连接（不同客户端字段名略有差异，含义一致）：`,
+    configWithToken,
+  ].join("\n");
 
   return (
     <div>
@@ -234,6 +257,20 @@ export default async function AgentsPage({
         </p>
         <pre className="mt-3 overflow-auto rounded-md bg-zinc-950 p-3 text-xs leading-relaxed text-zinc-100 dark:bg-black">
           <code>{configSnippet}</code>
+        </pre>
+      </div>
+
+      <div className="mt-6 rounded-xl border border-emerald-200 bg-emerald-50/50 p-4 dark:border-emerald-900/40 dark:bg-emerald-950/20">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="text-sm font-semibold text-emerald-800 dark:text-emerald-200">转发给本地 Agent · 一键接入</div>
+          <CopyButton text={onboardingText} label="复制全部（直接发给 Agent）" />
+        </div>
+        <p className="mt-1 text-xs leading-relaxed text-zinc-600 dark:text-zinc-400">
+          把下面整段复制，直接发给你电脑上装了 MCP 的 Agent（Claude / Cursor / QoderWork 等）。它读完就知道如何连接本项目并推进工作。
+          {reveal ? " 当前配置已包含刚生成的真实令牌，复制即用。" : " 先在下方「生成令牌」，回到本页后配置里会自动带上真实令牌。"}
+        </p>
+        <pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-md bg-zinc-950 p-3 text-[12.5px] leading-relaxed text-zinc-100 dark:bg-black">
+          <code>{onboardingText}</code>
         </pre>
       </div>
 
