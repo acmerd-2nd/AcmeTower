@@ -4,6 +4,7 @@ import { phaseAction } from "@/lib/actions/write";
 import { httpProjectRow } from "@/lib/mcp/httpdata";
 import { listPhaseRows } from "@/lib/data/reads";
 import { PHASE_TRANSITIONS } from "@/lib/core/state-machines";
+import { statusLabel } from "@/lib/core/labels";
 
 export const dynamic = "force-dynamic";
 
@@ -79,7 +80,7 @@ export default async function RoadmapPage({
                   {nexts.map((to) => (
                     <ActionButton
                       key={to}
-                      label={to}
+                      label={statusLabel(to)}
                       action={phaseAction}
                       fields={[
                         { name: "projectId", value: projectId },
@@ -104,7 +105,15 @@ export default async function RoadmapPage({
             </li>
           );
         })}
-        {rows.length === 0 && <li className="text-sm text-zinc-400">还没有 Phase。</li>}
+        {rows.length === 0 && (
+          <li className="rounded-xl border border-dashed border-zinc-300 px-6 py-10 text-center dark:border-zinc-700">
+            <div className="text-2xl">🗺️</div>
+            <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+              还没有 Phase。用上方表单创建 <strong>Phase 1</strong>：写清「目标」和「成功标准」，项目主线就立起来了。
+            </p>
+            <p className="mt-1 text-xs text-zinc-400">建好后点「设为当前」，再去 Tasks 页把这一阶段拆成任务。</p>
+          </li>
+        )}
       </ol>
     </div>
   );

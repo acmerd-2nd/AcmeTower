@@ -1,9 +1,11 @@
+import Link from "next/link";
 import { ActionButton } from "@/components/action-button";
 import { ErrorBanner, SelectField, StatusPill, Submit, TextArea, TextField } from "@/components/form-bits";
 import { taskAction } from "@/lib/actions/write";
 import { httpProjectRow } from "@/lib/mcp/httpdata";
 import { listTaskRows, phaseOptions } from "@/lib/data/reads";
 import { TASK_TRANSITIONS } from "@/lib/core/state-machines";
+import { statusLabel } from "@/lib/core/labels";
 
 export const dynamic = "force-dynamic";
 
@@ -25,7 +27,18 @@ export default async function TasksPage({
       <ErrorBanner message={error} />
 
       {phases.length === 0 ? (
-        <p className="mt-4 text-sm text-zinc-500">请先在 Roadmap 创建 Phase。</p>
+        <div className="mt-4 rounded-xl border border-dashed border-zinc-300 px-6 py-10 text-center dark:border-zinc-700">
+          <div className="text-2xl">📋</div>
+          <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+            任务需要先挂在一个 Phase 下。先去 <strong>Roadmap</strong> 创建阶段，再回来拆任务。
+          </p>
+          <Link
+            href={`/projects/${projectId}/roadmap`}
+            className="mt-3 inline-block rounded-md bg-zinc-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-zinc-700 dark:bg-zinc-50 dark:text-zinc-900"
+          >
+            去 Roadmap 创建 Phase →
+          </Link>
+        </div>
       ) : (
         <form action={taskAction} className="mt-4 rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 dark:border-zinc-800 dark:bg-zinc-900/40">
           <input type="hidden" name="projectId" value={projectId} />
@@ -42,10 +55,10 @@ export default async function TasksPage({
               name="priority"
               label="优先级"
               options={[
-                { value: "LOW", label: "LOW" },
-                { value: "MEDIUM", label: "MEDIUM" },
-                { value: "HIGH", label: "HIGH" },
-                { value: "URGENT", label: "URGENT" },
+                { value: "LOW", label: "低" },
+                { value: "MEDIUM", label: "中" },
+                { value: "HIGH", label: "高" },
+                { value: "URGENT", label: "紧急" },
               ]}
             />
           </div>
@@ -112,7 +125,7 @@ export default async function TasksPage({
                   {nexts.map((to) => (
                     <ActionButton
                       key={to}
-                      label={to}
+                      label={statusLabel(to)}
                       action={taskAction}
                       fields={[
                         { name: "projectId", value: projectId },
@@ -138,7 +151,12 @@ export default async function TasksPage({
           );
         })}
         {rows.length === 0 && phases.length > 0 && (
-          <li className="text-sm text-zinc-400">还没有任务。</li>
+          <li className="rounded-xl border border-dashed border-zinc-300 px-6 py-10 text-center dark:border-zinc-700">
+            <div className="text-2xl">🧩</div>
+            <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+              还没有任务。在上方表单把当前 Phase 拆成几件小事——每件写清「为什么做」和「成功标准」，Agent 就能通过 MCP 认领并推进。
+            </p>
+          </li>
         )}
       </ul>
     </div>

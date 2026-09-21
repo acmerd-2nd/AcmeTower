@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { getProjectSpace, type ProjectSpace } from "@/lib/data/project";
+import { statusLabel } from "@/lib/core/labels";
 
 export const dynamic = "force-dynamic";
 
@@ -60,12 +61,12 @@ function PositionBar({ space }: { space: ProjectSpace }) {
   const bits = [
     currentPhase ? currentPhase.name : null,
     currentTask ? currentTask.name : null,
-    currentBranch ? `Branch: ${currentBranch.name}` : null,
-    currentTask?.agentName ? `Agent: ${currentTask.agentName}` : null,
+    currentBranch ? `分支 ${currentBranch.name}` : null,
+    currentTask?.agentName ? `Agent：${currentTask.agentName}` : null,
   ].filter(Boolean);
   return (
     <div className="flex flex-wrap items-center gap-2 text-sm">
-      <span className="rounded-md bg-zinc-100 px-2 py-1 font-medium dark:bg-zinc-800">{project.status}</span>
+      <span className="rounded-md bg-zinc-100 px-2 py-1 font-medium dark:bg-zinc-800">{statusLabel(project.status)}</span>
       {bits.length ? (
         <span className="text-zinc-600 dark:text-zinc-300">{bits.join("  ·  ")}</span>
       ) : (

@@ -10,6 +10,7 @@ import {
 import { branchAction } from "@/lib/actions/write";
 import { listBranchRows, phaseOptions, taskOptions } from "@/lib/data/reads";
 import { BRANCH_TRANSITIONS } from "@/lib/core/state-machines";
+import { statusLabel } from "@/lib/core/labels";
 
 export const dynamic = "force-dynamic";
 
@@ -97,7 +98,7 @@ export default async function BranchesPage({
                     .map((to) => (
                       <ActionButton
                         key={to}
-                        label={to}
+                        label={statusLabel(to)}
                         action={branchAction}
                         fields={[
                           { name: "projectId", value: projectId },
@@ -128,7 +129,9 @@ export default async function BranchesPage({
             </li>
           );
         })}
-        {branches.length === 0 && <li className="text-sm text-zinc-400">还没有分支。</li>}
+        {branches.length === 0 && (
+          <li className="text-sm text-zinc-400">还没有分支。主线之外要处理意外时，从这里开一条，并写好回主线的 Return Point。</li>
+        )}
       </ul>
     </div>
   );

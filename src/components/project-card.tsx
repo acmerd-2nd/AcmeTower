@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { archiveProjectAction, restoreProjectAction } from "@/app/projects/actions";
 import type { ProjectCard as Card } from "@/lib/data/projects";
+import { statusLabel } from "@/lib/core/labels";
+import { timeAgo } from "@/lib/core/format";
 
 const healthStyle: Record<Card["health"], string> = {
   GREEN: "bg-emerald-500",
@@ -12,22 +14,6 @@ const healthLabel: Record<Card["health"], string> = {
   YELLOW: "有风险",
   RED: "危险",
 };
-const statusLabel: Record<Card["status"], string> = {
-  ACTIVE: "进行中",
-  PAUSED: "暂停",
-  COMPLETED: "已完成",
-  ARCHIVED: "已归档",
-};
-
-function timeAgo(d: Date): string {
-  const s = Math.floor((Date.now() - new Date(d).getTime()) / 1000);
-  if (s < 60) return "刚刚";
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m} 分钟前`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h} 小时前`;
-  return `${Math.floor(h / 24)} 天前`;
-}
 
 export function ProjectCard({ card }: { card: Card }) {
   return (
@@ -43,7 +29,7 @@ export function ProjectCard({ card }: { card: Card }) {
           title={`健康度：${healthLabel[card.health]}`}
         >
           <span className={`h-2 w-2 rounded-full ${healthStyle[card.health]}`} />
-          {statusLabel[card.status]}
+          {statusLabel(card.status)}
         </span>
       </div>
 

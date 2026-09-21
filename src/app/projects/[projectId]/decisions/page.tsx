@@ -3,6 +3,7 @@ import { ErrorBanner, StatusPill, Submit, TextArea, TextField } from "@/componen
 import { decisionAction } from "@/lib/actions/write";
 import { listDecisionRows } from "@/lib/data/reads";
 import { DECISION_TRANSITIONS } from "@/lib/core/state-machines";
+import { statusLabel } from "@/lib/core/labels";
 
 export const dynamic = "force-dynamic";
 
@@ -60,7 +61,7 @@ export default async function DecisionsPage({
                     <ActionButton
                       key={to}
                       tone={to === "APPROVED" ? "solid" : to === "REJECTED" ? "danger" : "ghost"}
-                      label={to}
+                      label={statusLabel(to)}
                       action={decisionAction}
                       fields={[
                         { name: "projectId", value: projectId },

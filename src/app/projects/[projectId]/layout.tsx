@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { httpProjectRow } from "@/lib/mcp/httpdata";
 import { ProjectNav } from "@/components/project-nav";
+import { StatusPill } from "@/components/form-bits";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +35,7 @@ export default async function ProjectSpaceLayout({
       <header className="mt-2 flex items-center gap-2">
         <span className="text-2xl leading-none">{project.icon ?? "📁"}</span>
         <h1 className="text-xl font-semibold tracking-tight">{project.name}</h1>
+        <StatusPill status={project.status} />
       </header>
 
       <div className="mt-6 flex flex-col gap-6 md:flex-row">

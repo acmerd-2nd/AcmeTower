@@ -3,6 +3,7 @@ import { ErrorBanner, SelectField, StatusPill, Submit, TextArea, TextField } fro
 import { issueAction } from "@/lib/actions/write";
 import { listIssueRows } from "@/lib/data/reads";
 import { ISSUE_TRANSITIONS } from "@/lib/core/state-machines";
+import { statusLabel } from "@/lib/core/labels";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +12,12 @@ const sev: Record<string, string> = {
   MEDIUM: "text-amber-600",
   HIGH: "text-orange-600",
   CRITICAL: "text-red-600 font-semibold",
+};
+const sevLabel: Record<string, string> = {
+  LOW: "低",
+  MEDIUM: "中",
+  HIGH: "高",
+  CRITICAL: "危急",
 };
 
 export default async function IssuesPage({
@@ -40,10 +47,10 @@ export default async function IssuesPage({
             name="severity"
             label="严重度"
             options={[
-              { value: "LOW", label: "LOW" },
-              { value: "MEDIUM", label: "MEDIUM" },
-              { value: "HIGH", label: "HIGH" },
-              { value: "CRITICAL", label: "CRITICAL" },
+              { value: "LOW", label: "低" },
+              { value: "MEDIUM", label: "中" },
+              { value: "HIGH", label: "高" },
+              { value: "CRITICAL", label: "危急" },
             ]}
           />
         </div>
@@ -62,7 +69,7 @@ export default async function IssuesPage({
             <li key={it.id} className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
               <div className="flex items-center gap-2">
                 <StatusPill status={it.status} />
-                <span className={`text-xs ${sev[it.severity] ?? ""}`}>{it.severity}</span>
+                <span className={`text-xs ${sev[it.severity] ?? ""}`}>{sevLabel[it.severity] ?? it.severity}</span>
               </div>
               <div className="mt-1 font-medium">{it.title}</div>
               {it.description && <div className="mt-0.5 line-clamp-2 text-sm text-zinc-500">{it.description}</div>}
@@ -73,7 +80,7 @@ export default async function IssuesPage({
                   .map((t) => (
                     <ActionButton
                       key={t}
-                      label={t}
+                      label={statusLabel(t)}
                       action={issueAction}
                       fields={[
                         { name: "projectId", value: projectId },
@@ -105,7 +112,9 @@ export default async function IssuesPage({
             </li>
           );
         })}
-        {rows.length === 0 && <li className="text-sm text-zinc-400">还没有 Issue。</li>}
+        {rows.length === 0 && (
+          <li className="text-sm text-zinc-400">还没有 Issue。遇到阻塞或偏差时随手记一条，Agent 也能通过 MCP 上报。</li>
+        )}
       </ul>
     </div>
   );
