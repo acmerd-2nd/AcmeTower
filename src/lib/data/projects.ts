@@ -1,5 +1,5 @@
 import { httpProjectCards } from "@/lib/mcp/httpdata";
-import { rpcCreateProject, rpcSetProjectStatus } from "@/lib/data/app-rpc";
+import { rpcCreateProject, rpcSetProjectStatus, rpcRenameProject, rpcPurgeProject, type PurgeSummary } from "@/lib/data/app-rpc";
 import type { Actor } from "@/lib/core/audit";
 import type { Project } from "@/lib/db/schema";
 
@@ -77,4 +77,17 @@ export async function createProject(actor: Actor, input: NewProjectInput): Promi
 
 export async function setProjectStatus(actor: Actor, id: string, status: Project["status"]): Promise<void> {
   await rpcSetProjectStatus(actor, id, status);
+}
+
+/** 就地改名（乐观锁在 RPC 内 version++，审计 PROJECT_RENAMED）。 */
+export async function renameProject(actor: Actor, id: string, name: string): Promise<Project> {
+  return rpcRenameProject(actor, id, name);
+}
+
+/**
+ * 彻底删除（两阶段护栏：仅已归档项目可删；级联清空全部子表）。
+ * Web-only 治理动作——绝不注册为 /mcp 工具，Agent 无法触发。
+ */
+export async function purgeProject(actor: Actor, id: string): Promise<PurgeSummary> {
+  return rpcPurgeProject(actor, id);
 }

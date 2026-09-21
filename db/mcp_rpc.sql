@@ -913,6 +913,63 @@ begin
   end if;  -- idempotent: already revoked → no-op
 end $$;
 
+-- ── rename + hard purge (web-only governance; NEVER exposed through /mcp) ────
+create or replace function public.app_rename_project(
+  p_project uuid, p_name text, p_actor jsonb
+) returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
+declare cur public.projects; r public.projects; nm text := btrim(coalesce(p_name,''));
+begin
+  if nm = '' or length(nm) > 200 then raise exception '项目名称需为 1–200 个字符'; end if;
+  select * into cur from public.projects where id = p_project and deleted_at is null;
+  if cur.id is null then raise exception '项目不存在'; end if;
+  update public.projects set name = nm, version = version + 1, updated_at = now()
+    where id = p_project returning * into r;
+  perform public.mcp_log(p_project, p_actor, 'PROJECT_RENAMED', 'project', p_project,
+    '项目重命名「'||cur.name||'」→「'||nm||'」',
+    jsonb_build_object('name', cur.name), jsonb_build_object('name', nm));
+  return to_jsonb(r);
+end $$;
+
+-- 两阶段护栏：只有已归档(ARCHIVED)的项目才允许彻底删除；真·DELETE 依赖
+-- projects 的全部外键 onDelete=cascade，一行删干净。事务内先 mcp_log 再删，
+-- 审计行随项目一起消失——「彻底删除」即不留任何数据，UI 必须二次确认。
+create or replace function public.app_purge_project(
+  p_project uuid, p_actor jsonb
+) returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
+declare cur public.projects; s jsonb; orphan_agents int;
+begin
+  select * into cur from public.projects where id = p_project;  -- 故意不加 deleted_at 过滤：回收站里也可能有软删遗留
+  if cur.id is null then raise exception '项目不存在'; end if;
+  if cur.status <> 'ARCHIVED' then
+    raise exception '只能彻底删除已归档的项目——请先归档再删除（两阶段保护）';
+  end if;
+  select jsonb_build_object(
+    'phases',     (select count(*) from public.phases where project_id = p_project),
+    'tasks',      (select count(*) from public.tasks where project_id = p_project),
+    'branches',   (select count(*) from public.branches where project_id = p_project),
+    'issues',     (select count(*) from public.issues where project_id = p_project),
+    'decisions',  (select count(*) from public.decisions where project_id = p_project),
+    'proposals',  (select count(*) from public.proposals where project_id = p_project),
+    'checkpoints',(select count(*) from public.checkpoints where project_id = p_project),
+    'credentials',(select count(*) from public.mcp_credentials where project_id = p_project),
+    'events',     (select count(*) from public.activity_events where project_id = p_project)
+  ) into s;
+  perform public.mcp_log(p_project, p_actor, 'PROJECT_PURGED', 'project', p_project,
+    '彻底删除项目「'||cur.name||'」：'||(s->>'tasks')||' 任务 / '||(s->>'events')||' 事件', s, null);
+  delete from public.projects where id = p_project;  -- cascade 清掉所有子表
+  -- 顺带回收因删除而失去全部绑定与会话的孤儿 Agent（仍被别处引用则保留）
+  delete from public.agents a
+   where not exists (select 1 from public.project_agents pa where pa.agent_id = a.id)
+     and not exists (select 1 from public.agent_sessions se where se.agent_id = a.id);
+  get diagnostics orphan_agents = row_count;
+  return jsonb_build_object(
+    'id', cur.id, 'name', cur.name, 'status', cur.status,
+    'deleted', s, 'orphan_agents', coalesce(orphan_agents, 0)
+  );
+exception when foreign_key_violation then
+  raise exception '彻底删除失败：存在未纳入级联的外部引用（%）', sqlerrm;
+end $$;
+
 -- grants for the app_* section
 do $$
 declare fn text;
@@ -921,6 +978,8 @@ begin
     'app_ensure_profile(uuid,text,text)',
     'app_create_project(jsonb,jsonb)',
     'app_set_project_status(uuid,text,jsonb)',
+    'app_rename_project(uuid,text,jsonb)',
+    'app_purge_project(uuid,jsonb)',
     'app_create_agent_and_bind(uuid,jsonb,jsonb)',
     'app_bind_agent(uuid,uuid,text,jsonb)',
     'app_set_agent_permission(uuid,uuid,text,jsonb)',

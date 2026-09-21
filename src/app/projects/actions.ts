@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireWebActor } from "@/lib/core/actor";
-import { createProject, setProjectStatus } from "@/lib/data/projects";
+import { createProject, setProjectStatus, renameProject, purgeProject } from "@/lib/data/projects";
 
 function slugify(s: string) {
   return (
@@ -56,4 +56,39 @@ export async function restoreProjectAction(formData: FormData) {
   if (!id) return;
   await setProjectStatus(actor, id, "ACTIVE");
   revalidatePath("/projects");
+}
+
+export type ActionResult = { ok: true } | { ok: false; error: string };
+
+export async function renameProjectAction(formData: FormData): Promise<ActionResult> {
+  const actor = await requireWebActor();
+  const id = String(formData.get("id") ?? "");
+  const name = String(formData.get("name") ?? "").trim();
+  if (!id || !name) return { ok: false, error: "名称不能为空" };
+  try {
+    await renameProject(actor, id, name);
+  } catch (e) {
+    return { ok: false, error: (e as Error).message || "重命名失败" };
+  }
+  revalidatePath("/projects");
+  revalidatePath(`/projects/${id}`);
+  return { ok: true };
+}
+
+/**
+ * 彻底删除（回收站专属）。两阶段护栏在 RPC 内：非 ARCHIVED 一律拒绝。
+ * 仅人类 Web 会话可触发；不注册为 /mcp 工具，Agent 永远碰不到。
+ */
+export async function purgeProjectAction(formData: FormData): Promise<ActionResult> {
+  const actor = await requireWebActor();
+  const id = String(formData.get("id") ?? "");
+  if (!id) return { ok: false, error: "缺少项目 id" };
+  try {
+    await purgeProject(actor, id);
+  } catch (e) {
+    return { ok: false, error: (e as Error).message || "删除失败" };
+  }
+  revalidatePath("/projects");
+  revalidatePath("/projects/trash");
+  return { ok: true };
 }

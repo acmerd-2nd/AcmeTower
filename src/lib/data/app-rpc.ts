@@ -67,6 +67,36 @@ export async function rpcSetProjectStatus(actor: Actor, projectId: string, statu
   );
 }
 
+/** 就地改名（version++，审计 PROJECT_RENAMED）。返回更新后的项目行。 */
+export async function rpcRenameProject(actor: Actor, projectId: string, name: string): Promise<Project> {
+  const r = await restRpc(
+    "app_rename_project",
+    { p_project: projectId, p_name: name, p_actor: actorJson(actor) },
+    { attempts: 1 },
+  );
+  return mapProject(unwrap(r));
+}
+
+export interface PurgeSummary {
+  id: string;
+  name: string;
+  status: string;
+  deleted: Record<string, number>;
+  orphan_agents: number;
+}
+/**
+ * 两阶段护栏下的真·删除：仅已归档项目可被彻底删除，级联清空全部子表数据。
+ * Web-only（人类会话），绝不暴露为 /mcp 工具。
+ */
+export async function rpcPurgeProject(actor: Actor, projectId: string): Promise<PurgeSummary> {
+  const r = await restRpc(
+    "app_purge_project",
+    { p_project: projectId, p_actor: actorJson(actor) },
+    { attempts: 1 },
+  );
+  return unwrap(r) as unknown as PurgeSummary;
+}
+
 // ── agents + bindings ────────────────────────────────────────────────────────
 export interface AgentCreateInput {
   name: string;

@@ -18,7 +18,7 @@ const SECTIONS: { id: string; n: string; title: string }[] = [
 ];
 
 const PAGE_MAP: { page: string; what: string }[] = [
-  { page: "Project Home（我的项目）", what: "所有项目的卡片总览：当前阶段、进度、开放分支/问题、健康度；支持搜索与按状态筛选，右上角新建项目。" },
+  { page: "Project Home（我的项目）", what: "所有项目的卡片总览：当前阶段、进度、开放分支/问题、健康度；支持搜索与按状态筛选，右上角新建项目。右键卡片弹出操作菜单：打开、重命名、复制链接、导出 JSON、归档（软删除）；已归档的项目还可恢复或彻底删除。" },
   { page: "Overview（概览）", what: "单个项目的“驾驶舱”：North Star、Current Mission（当前目标/现状/边界/下一步）、当前位置、关键信号与最近决策/检查点。" },
   { page: "Roadmap（主线）", what: "把项目拆成有序的阶段（Phase），每个 Phase 有目标、成功标准与范围约束，设定哪一个是“当前阶段”。" },
   { page: "Tasks（任务）", what: "Phase 下的可执行任务，带状态机（TODO→IN_PROGRESS→BLOCKED→COMPLETED）、进度百分比、优先级与负责人 Agent。" },
@@ -30,6 +30,7 @@ const PAGE_MAP: { page: string; what: string }[] = [
   { page: "Timeline（时间线）", what: "全量审计流水：谁、何时、对哪个对象、做了什么、来源（人类/Web/MCP/系统），可按来源与关键词筛选。" },
   { page: "Agents（智能体）", what: "管理 AI Agent：创建/绑定 Agent、授予权限级别、签发与撤销 MCP 连接令牌。" },
   { page: "Settings（设置）", what: "项目元信息、North Star 编辑，以及状态（进行中/暂停/完成/归档）等治理操作。" },
+  { page: "回收站（/projects/trash）", what: "两阶段删除的第二站：这里只放已归档项目。归档只是收起、随时可恢复；「彻底删除」会级联清空该项目的所有主线/任务/分支/Issue/决策/检查点/MCP 连接与审计事件，且需逐字输入项目名确认，不可恢复。彻底删除仅限人类在网页操作，Agent 通过 MCP 永远无法触发。" },
 ];
 
 const GLOSSARY: { term: string; def: string }[] = [

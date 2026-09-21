@@ -40,6 +40,12 @@ export default async function ProjectsPage({
         </div>
         <div className="flex items-center gap-2">
           <Link
+            href="/projects/trash"
+            className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          >
+            回收站
+          </Link>
+          <Link
             href="/help"
             className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
           >
