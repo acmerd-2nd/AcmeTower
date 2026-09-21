@@ -17,7 +17,7 @@ export default async function SettingsPage({
 
   return (
     <div>
-      <h2 className="text-lg font-semibold tracking-tight">Settings</h2>
+      <h2 className="text-lg font-semibold tracking-tight">Settings · 设置</h2>
       <ErrorBanner message={error} />
 
       <section className="mt-4 rounded-xl border border-zinc-200 p-5 dark:border-zinc-800">

@@ -33,7 +33,7 @@ export default async function IssuesPage({
 
   return (
     <div>
-      <h2 className="text-lg font-semibold tracking-tight">Issues</h2>
+      <h2 className="text-lg font-semibold tracking-tight">Issues · 问题</h2>
       <ErrorBanner message={error} />
 
       <form action={issueAction} className="mt-4 rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 dark:border-zinc-800 dark:bg-zinc-900/40">

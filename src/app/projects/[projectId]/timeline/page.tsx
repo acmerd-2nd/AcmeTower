@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Fragment } from "react";
 import {
   entityTypeHref,
   getTimeline,
@@ -17,6 +18,18 @@ const sourceStyle: Record<string, string> = {
   HUMAN: "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300",
   SYSTEM: "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400",
 };
+
+function dayLabel(d: Date | string): string {
+  const dt = new Date(d);
+  const now = new Date();
+  const startOf = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diff = Math.round((startOf(now) - startOf(dt)) / 86400000);
+  if (diff <= 0) return "今天";
+  if (diff === 1) return "昨天";
+  if (diff === 2) return "前天";
+  const md = `${dt.getMonth() + 1}月${dt.getDate()}日`;
+  return dt.getFullYear() === now.getFullYear() ? md : `${dt.getFullYear()}年${md}`;
+}
 
 export default async function TimelinePage({
   params,
@@ -80,9 +93,18 @@ export default async function TimelinePage({
       </div>
 
       <ol className="mt-6 space-y-3">
-        {events.map((e) => (
-          <TimelineRow key={e.id} projectId={projectId} e={e} />
-        ))}
+        {events.map((e, i) => {
+          const day = dayLabel(e.createdAt);
+          const prev = i > 0 ? dayLabel(events[i - 1].createdAt) : null;
+          return (
+            <Fragment key={e.id}>
+              {day !== prev && (
+                <li className="pb-0.5 pt-3 text-xs font-medium tracking-wide text-zinc-400 first:pt-0">{day}</li>
+              )}
+              <TimelineRow projectId={projectId} e={e} />
+            </Fragment>
+          );
+        })}
         {events.length === 0 &&
           (q || (source && source !== "ALL") ? (
             <li className="rounded-xl border border-dashed border-zinc-300 px-6 py-10 text-center text-sm text-zinc-500 dark:border-zinc-700">

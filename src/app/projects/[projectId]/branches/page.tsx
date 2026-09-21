@@ -37,7 +37,7 @@ export default async function BranchesPage({
 
   return (
     <div>
-      <h2 className="text-lg font-semibold tracking-tight">Branches</h2>
+      <h2 className="text-lg font-semibold tracking-tight">Branches · 分支</h2>
       <p className="mt-1 text-sm text-zinc-500">
         分支用于处理意外，必须记录来源·原因·目标与 Return Point；完成后回收，不破坏主线。
       </p>

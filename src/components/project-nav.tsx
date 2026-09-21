@@ -3,18 +3,18 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-const ITEMS: { href: (id: string) => string; label: string; exact?: boolean }[] = [
-  { href: (id) => `/projects/${id}`, label: "Overview", exact: true },
-  { href: (id) => `/projects/${id}/roadmap`, label: "Roadmap" },
-  { href: (id) => `/projects/${id}/tasks`, label: "Tasks" },
-  { href: (id) => `/projects/${id}/branches`, label: "Branches" },
-  { href: (id) => `/projects/${id}/decisions`, label: "Decisions" },
-  { href: (id) => `/projects/${id}/issues`, label: "Issues" },
-  { href: (id) => `/projects/${id}/proposals`, label: "Proposals" },
-  { href: (id) => `/projects/${id}/checkpoints`, label: "Checkpoints" },
-  { href: (id) => `/projects/${id}/timeline`, label: "Timeline" },
-  { href: (id) => `/projects/${id}/agents`, label: "Agents" },
-  { href: (id) => `/projects/${id}/settings`, label: "Settings" },
+const ITEMS: { href: (id: string) => string; label: string; en: string; exact?: boolean }[] = [
+  { href: (id) => `/projects/${id}`, label: "概览", en: "Overview", exact: true },
+  { href: (id) => `/projects/${id}/roadmap`, label: "主线", en: "Roadmap" },
+  { href: (id) => `/projects/${id}/tasks`, label: "任务", en: "Tasks" },
+  { href: (id) => `/projects/${id}/branches`, label: "分支", en: "Branches" },
+  { href: (id) => `/projects/${id}/decisions`, label: "决策", en: "Decisions" },
+  { href: (id) => `/projects/${id}/issues`, label: "问题", en: "Issues" },
+  { href: (id) => `/projects/${id}/proposals`, label: "提案", en: "Proposals" },
+  { href: (id) => `/projects/${id}/checkpoints`, label: "检查点", en: "Checkpoints" },
+  { href: (id) => `/projects/${id}/timeline`, label: "时间线", en: "Timeline" },
+  { href: (id) => `/projects/${id}/agents`, label: "智能体", en: "Agents" },
+  { href: (id) => `/projects/${id}/settings`, label: "设置", en: "Settings" },
 ];
 
 export function ProjectNav({ projectId }: { projectId: string }) {
@@ -28,6 +28,7 @@ export function ProjectNav({ projectId }: { projectId: string }) {
           <Link
             key={href}
             href={href}
+            title={it.en}
             className={`whitespace-nowrap rounded-md px-3 py-1.5 text-sm ${
               active
                 ? "bg-zinc-900 font-medium text-white dark:bg-zinc-50 dark:text-zinc-900"

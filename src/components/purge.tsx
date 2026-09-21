@@ -3,13 +3,26 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Modal } from "./modal";
+import { toast } from "./toast";
 import { purgeProjectAction } from "@/app/projects/actions";
 
 /**
  * 彻底删除确认弹窗：必须逐字输入项目名才能点「不可恢复地删除」。
  * 后端 RPC 还有第二道护栏（仅 ARCHIVED 可 purge），这里是前端的防误删层。
  */
-export function PurgeDialog({ open, onClose, id, name }: { open: boolean; onClose: () => void; id: string; name: string }) {
+export function PurgeDialog({
+  open,
+  onClose,
+  id,
+  name,
+  onDone,
+}: {
+  open: boolean;
+  onClose: () => void;
+  id: string;
+  name: string;
+  onDone?: () => void;
+}) {
   const [confirmText, setConfirmText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
@@ -24,6 +37,8 @@ export function PurgeDialog({ open, onClose, id, name }: { open: boolean; onClos
       const r = await purgeProjectAction(fd);
       if (r.ok) {
         onClose();
+        toast(`已彻底删除「${name}」`);
+        onDone?.();
         router.refresh();
       } else {
         setError(r.error);

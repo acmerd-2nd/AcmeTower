@@ -80,7 +80,7 @@ function NorthStarCard({ space }: { space: ProjectSpace }) {
   const ns = space.northStar;
   if (!ns) {
     return (
-      <Card title="North Star">
+      <Card title="North Star · 北极星">
         <p className="text-sm text-zinc-500">
           尚无 North Star。它由人类拥有；Agent 只能提交变更提案。
         </p>
@@ -88,7 +88,7 @@ function NorthStarCard({ space }: { space: ProjectSpace }) {
     );
   }
   return (
-    <Card title="North Star">
+    <Card title="North Star · 北极星">
       <div className="space-y-3 text-sm">
         {ns.finalGoal && <Line label="最终目标" value={ns.finalGoal} />}
         {ns.deliverable && <Line label="最终交付" value={ns.deliverable} />}
@@ -112,13 +112,13 @@ function Line({ label, value }: { label: string; value: string }) {
 function Mainline({ space }: { space: ProjectSpace }) {
   if (space.phases.length === 0) {
     return (
-      <Card title="Mainline">
+      <Card title="Mainline · 主线">
         <p className="text-sm text-zinc-500">还没有 Phase。</p>
       </Card>
     );
   }
   return (
-    <Card title="Mainline">
+    <Card title="Mainline · 主线">
       <ol className="space-y-2">
         {space.phases.map((p, i) => {
           const isCurrent = p.id === space.currentPhase?.id;
@@ -148,7 +148,7 @@ function Mainline({ space }: { space: ProjectSpace }) {
 function CurrentMission({ space }: { space: ProjectSpace }) {
   const m = space.mission;
   return (
-    <Card title="Current Mission">
+    <Card title="Current Mission · 当前使命">
       <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
         <Line label="Objective" value={m.objective ?? "—"} />
         <Line label="Success Criteria" value={m.successCriteria ?? "—"} />
@@ -170,7 +170,7 @@ function Signals({ space }: { space: ProjectSpace }) {
   const s = space.signals;
   return (
     <div className="space-y-6">
-      <Card title="Signals">
+      <Card title="Signals · 信号">
         <div className="grid grid-cols-3 gap-2 text-center">
           <Stat label="分支" value={s.openBranches} />
           <Stat label="Issue" value={s.openIssues} />
@@ -190,7 +190,7 @@ function Signals({ space }: { space: ProjectSpace }) {
         )}
       </Card>
 
-      <Card title="Recent Decisions">
+      <Card title="Recent Decisions · 最近决策">
         {s.recentDecisions.length === 0 ? <Empty /> : (
           <ul className="space-y-2 text-sm">
             {s.recentDecisions.map((d) => (
@@ -203,7 +203,7 @@ function Signals({ space }: { space: ProjectSpace }) {
         )}
       </Card>
 
-      <Card title="Recent Checkpoints">
+      <Card title="Recent Checkpoints · 最近检查点">
         {s.recentCheckpoints.length === 0 ? <Empty /> : (
           <ul className="space-y-3 text-sm">
             {s.recentCheckpoints.map((c) => (

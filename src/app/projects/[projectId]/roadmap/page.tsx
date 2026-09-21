@@ -22,7 +22,7 @@ export default async function RoadmapPage({
 
   return (
     <div>
-      <h2 className="text-lg font-semibold tracking-tight">Roadmap · Mainline</h2>
+      <h2 className="text-lg font-semibold tracking-tight">Roadmap · 主线</h2>
       <ErrorBanner message={error} />
 
       <form action={phaseAction} className="mt-4 rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 dark:border-zinc-800 dark:bg-zinc-900/40">

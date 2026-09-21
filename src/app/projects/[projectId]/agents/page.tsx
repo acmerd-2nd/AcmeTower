@@ -129,7 +129,7 @@ export default async function AgentsPage({
 
   return (
     <div>
-      <h2 className="text-lg font-semibold tracking-tight">Agents · MCP Connection</h2>
+      <h2 className="text-lg font-semibold tracking-tight">Agents · 智能体与 MCP 接入</h2>
       <p className="mt-1 text-sm text-zinc-500">
         为 Agent 生成本项目的 MCP 连接凭证。完整令牌只在创建后显示一次；系统仅保存其哈希，可随时撤销或重建。
       </p>

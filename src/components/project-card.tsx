@@ -10,9 +10,10 @@ import {
 } from "@/app/projects/actions";
 import type { ProjectCard as Card } from "@/lib/data/projects";
 import { statusLabel } from "@/lib/core/labels";
-import { timeAgo } from "@/lib/core/format";
+import { TimeAgo } from "@/components/time-ago";
 import { useContextMenu } from "@/components/context-menu";
 import { Modal } from "@/components/modal";
+import { toast } from "@/components/toast";
 import { PurgeDialog } from "@/components/purge";
 
 const healthStyle: Record<Card["health"], string> = {
@@ -30,18 +31,17 @@ export function ProjectCard({ card }: { card: Card }) {
   const router = useRouter();
   const [renameOpen, setRenameOpen] = useState(false);
   const [purgeOpen, setPurgeOpen] = useState(false);
-  const [copied, setCopied] = useState(false);
   const [pending, start] = useTransition();
   const archived = card.status === "ARCHIVED";
 
-  const { onContextMenu, menu } = useContextMenu([
+  const { onContextMenu, open, menu } = useContextMenu([
     { id: "open", label: "打开项目", icon: "↗", href: `/projects/${card.id}` },
     { id: "rename", label: "重命名…", icon: "✏️", onSelect: () => setRenameOpen(true) },
     { id: "copy", label: "复制链接", icon: "🔗", onSelect: copyLink },
     { id: "export", label: "导出 JSON", icon: "⬇", href: `/projects/${card.id}/export`, download: true },
     archived
-      ? { id: "restore", label: "恢复项目", icon: "♻️", onSelect: () => run(restoreProjectAction) }
-      : { id: "archive", label: "归档（软删）", icon: "🗄", onSelect: () => run(archiveProjectAction), separatorBefore: true, danger: true },
+      ? { id: "restore", label: "恢复项目", icon: "♻️", onSelect: () => run(restoreProjectAction, "已恢复 ♻️") }
+      : { id: "archive", label: "归档（软删）", icon: "🗄", onSelect: () => run(archiveProjectAction, "已归档，可在回收站找回 🗑"), separatorBefore: true, danger: true },
     ...(archived
       ? [{ id: "purge", label: "彻底删除…", icon: "☠️", danger: true, separatorBefore: true, onSelect: () => setPurgeOpen(true) }]
       : []),
@@ -50,18 +50,16 @@ export function ProjectCard({ card }: { card: Card }) {
   function copyLink() {
     navigator.clipboard
       .writeText(`${window.location.origin}/projects/${card.id}`)
-      .then(() => {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
-      })
-      .catch(() => {});
+      .then(() => toast("链接已复制 ✓"))
+      .catch(() => toast("复制失败，请手动复制地址"));
   }
 
-  function run(action: (fd: FormData) => Promise<unknown> | void) {
+  function run(action: (fd: FormData) => Promise<unknown> | void, msg: string) {
     start(async () => {
       const fd = new FormData();
       fd.set("id", card.id);
       await action(fd);
+      toast(msg);
       router.refresh();
     });
   }
@@ -77,13 +75,27 @@ export function ProjectCard({ card }: { card: Card }) {
           <span className="text-xl leading-none">{card.icon ?? "📁"}</span>
           <h3 className="font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">{card.name}</h3>
         </div>
-        <span
-          className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs text-zinc-600 dark:text-zinc-300"
-          title={`健康度：${healthLabel[card.health]} · 右键卡片有更多操作`}
-        >
-          <span className={`h-2 w-2 rounded-full ${healthStyle[card.health]}`} />
-          {statusLabel(card.status)}
-        </span>
+        <div className="relative z-10 flex items-center gap-1">
+          <span
+            className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs text-zinc-600 dark:text-zinc-300"
+            title={`健康度：${healthLabel[card.health]}`}
+          >
+            <span className={`h-2 w-2 rounded-full ${healthStyle[card.health]}`} />
+            {statusLabel(card.status)}
+          </span>
+          <button
+            type="button"
+            aria-label="更多操作"
+            title="更多操作（也可右键卡片）"
+            onClick={(e) => {
+              const r = e.currentTarget.getBoundingClientRect();
+              open(Math.max(8, r.right - 208), r.bottom + 4);
+            }}
+            className="rounded-md px-1.5 py-0.5 text-sm text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+          >
+            ⋯
+          </button>
+        </div>
       </div>
 
       {card.description && <p className="mt-2 line-clamp-2 text-sm text-zinc-500">{card.description}</p>}
@@ -121,14 +133,14 @@ export function ProjectCard({ card }: { card: Card }) {
           <span title="未关闭分支">分支 {card.openBranches}</span>
           <span title="未关闭 Issue">Issue {card.openIssues}</span>
         </span>
-        <span>{timeAgo(card.updatedAt)}</span>
+        <TimeAgo d={card.updatedAt} />
       </div>
 
       <div className="relative z-10 mt-3 flex items-center justify-end gap-2">
         {archived ? (
           <>
             <button
-              onClick={() => run(restoreProjectAction)}
+              onClick={() => run(restoreProjectAction, "已恢复 ♻️")}
               className="rounded-md border border-zinc-300 px-2.5 py-1 text-xs hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
             >
               恢复
@@ -142,7 +154,7 @@ export function ProjectCard({ card }: { card: Card }) {
           </>
         ) : (
           <button
-            onClick={() => run(archiveProjectAction)}
+            onClick={() => run(archiveProjectAction, "已归档，可在回收站找回 🗑")}
             className="rounded-md border border-zinc-300 px-2.5 py-1 text-xs text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
           >
             归档
@@ -159,14 +171,10 @@ export function ProjectCard({ card }: { card: Card }) {
         name={card.name}
         onDone={() => {
           setRenameOpen(false);
+          toast("已重命名 ✓");
           router.refresh();
         }}
       />
-      {copied && (
-        <div className="pointer-events-none fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-full bg-zinc-900 px-4 py-1.5 text-xs text-white shadow-lg dark:bg-zinc-100 dark:text-zinc-900">
-          已复制链接 ✓
-        </div>
-      )}
     </div>
   );
 }

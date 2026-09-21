@@ -17,7 +17,7 @@ export default async function CheckpointsPage({
 
   return (
     <div>
-      <h2 className="text-lg font-semibold tracking-tight">Checkpoints</h2>
+      <h2 className="text-lg font-semibold tracking-tight">Checkpoints · 检查点</h2>
       <p className="mt-1 text-sm text-zinc-500">Agent 阶段工作后的项目状态快照，形成可恢复的时间线。</p>
       <ErrorBanner message={error} />
 

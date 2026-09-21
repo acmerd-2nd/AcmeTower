@@ -50,6 +50,9 @@ export function useContextMenu(items: MenuItem[]) {
     setPos({ x: e.clientX, y: e.clientY });
   };
 
+  /** 供「⋯」等可见按钮调用：在指定坐标打开同一菜单。 */
+  const open = (x: number, y: number) => setPos({ x, y });
+
   let menu: React.ReactNode = null;
   if (pos) {
     // 视口钳位：估算尺寸即可，避免菜单溢出屏幕
@@ -101,5 +104,5 @@ export function useContextMenu(items: MenuItem[]) {
     );
   }
 
-  return { onContextMenu, menu };
+  return { onContextMenu, open, menu };
 }

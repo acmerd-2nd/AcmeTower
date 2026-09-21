@@ -20,7 +20,7 @@ export default async function DecisionsPage({
 
   return (
     <div>
-      <h2 className="text-lg font-semibold tracking-tight">Decisions</h2>
+      <h2 className="text-lg font-semibold tracking-tight">Decisions · 决策</h2>
       <ErrorBanner message={error} />
 
       <form action={decisionAction} className="mt-4 rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 dark:border-zinc-800 dark:bg-zinc-900/40">

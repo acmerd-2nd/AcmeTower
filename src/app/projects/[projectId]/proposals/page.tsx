@@ -35,7 +35,7 @@ export default async function ProposalsPage({
 
   return (
     <div>
-      <h2 className="text-lg font-semibold tracking-tight">Proposals</h2>
+      <h2 className="text-lg font-semibold tracking-tight">Proposals · 提案</h2>
       <p className="mt-1 text-sm text-zinc-500">Agent 想做范围外的事 → 提交提案，由人类批准 / 拒绝 / 延期（Parking Lot）。</p>
       <ErrorBanner message={error} />
 

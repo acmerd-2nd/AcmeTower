@@ -23,7 +23,7 @@ export default async function TasksPage({
 
   return (
     <div>
-      <h2 className="text-lg font-semibold tracking-tight">Tasks</h2>
+      <h2 className="text-lg font-semibold tracking-tight">Tasks · 任务</h2>
       <ErrorBanner message={error} />
 
       {phases.length === 0 ? (
