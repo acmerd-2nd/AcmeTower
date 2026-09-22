@@ -13,7 +13,7 @@ export default async function TrashPage() {
   const cards = await listProjectCards({ status: "ARCHIVED" });
 
   return (
-    <main className="mx-auto w-full max-w-6xl px-6 py-10">
+    <main className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 sm:py-10">
       <header className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">回收站</h1>

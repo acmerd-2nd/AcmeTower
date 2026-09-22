@@ -18,9 +18,9 @@ export default async function ProjectSpaceLayout({
   if (!project) notFound();
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-6 py-8">
-      <nav className="flex items-center justify-between text-sm text-zinc-500">
-        <div>
+    <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
+      <nav className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-sm text-zinc-500">
+        <div className="min-w-0">
           <Link href="/projects" className="hover:text-zinc-900 dark:hover:text-zinc-100">
             我的项目
           </Link>
@@ -32,9 +32,9 @@ export default async function ProjectSpaceLayout({
         </Link>
       </nav>
 
-      <header className="mt-2 flex items-center gap-2">
+      <header className="mt-2 flex flex-wrap items-center gap-2">
         <span className="text-2xl leading-none">{project.icon ?? "📁"}</span>
-        <h1 className="text-xl font-semibold tracking-tight">{project.name}</h1>
+        <h1 className="min-w-0 flex-1 truncate text-xl font-semibold tracking-tight">{project.name}</h1>
         <StatusPill status={project.status} />
       </header>
 

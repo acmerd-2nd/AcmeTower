@@ -12,8 +12,8 @@ export async function SiteHeader() {
 
   return (
     <header className="sticky top-0 z-20 border-b border-zinc-200 bg-white/80 backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/70">
-      <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between gap-4 px-6">
-        <div className="flex items-center gap-6">
+      <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between gap-3 px-4 sm:gap-4 sm:px-6">
+        <div className="flex items-center gap-3 sm:gap-6">
           <Link href="/projects" className="flex items-center gap-2 text-[15px] font-semibold tracking-tight">
             <span aria-hidden>🗼</span>
             AcmeTower

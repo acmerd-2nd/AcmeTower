@@ -10,7 +10,7 @@ export default async function NewProjectPage({
 }) {
   const { error } = await searchParams;
   return (
-    <main className="mx-auto w-full max-w-lg px-6 py-12">
+    <main className="mx-auto w-full max-w-lg px-4 py-10 sm:px-6 sm:py-12">
       <Link href="/projects" className="text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100">
         ← 返回项目列表
       </Link>

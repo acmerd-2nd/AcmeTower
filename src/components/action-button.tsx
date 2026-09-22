@@ -41,7 +41,7 @@ export function ActionButton({
       {fields.map((f) => (
         <input key={f.name} type="hidden" name={f.name} value={f.value} />
       ))}
-      <button type="submit" disabled={pending} className={`rounded-md px-2 py-1 text-xs ${cls}`}>
+      <button type="submit" disabled={pending} className={`inline-flex items-center rounded-md px-2.5 py-1.5 text-xs ${cls}`}>
         {label}
       </button>
     </form>

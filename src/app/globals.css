@@ -1,5 +1,15 @@
 @import "tailwindcss";
 
+/* 移动端横向滚动条隐去（ProjectNav 用）：保留滚动能力，只是不显示滚动条 */
+@utility no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+
 :root {
   --background: #ffffff;
   --foreground: #171717;
@@ -19,6 +29,11 @@
   }
 }
 
+html {
+  -webkit-text-size-adjust: 100%; /* 禁止横屏时浏览器擅自放大字号 */
+  text-size-adjust: 100%;
+}
+
 body {
   background: var(--background);
   color: var(--foreground);
@@ -29,4 +44,20 @@ body {
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  -webkit-tap-highlight-color: transparent; /* 移动端点按不留灰色高亮块 */
 }
+
+/*
+ * 移动端适配（步骤B）：iOS Safari 在聚焦字号 <16px 的输入框时会自动放大整页，体验极差。
+ * 全站输入控件的 Tailwind 类多为 text-sm(14px)/text-xs(12px)，逐处改 className 既零散又易漏，
+ * 故在窄屏用一条媒体查询把可见输入统一抬到 16px（!important 以盖过 text-sm 这类元素同级类）。
+ * 桌面(≥640px)完全不受影响，仍是紧凑的 12/14px。
+ */
+@media (max-width: 640px) {
+  input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+

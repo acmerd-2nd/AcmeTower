@@ -105,7 +105,7 @@ function Step({ n, title, children }: { n: number; title: string; children: Reac
 
 export default function HelpPage() {
   return (
-    <main className="mx-auto w-full max-w-3xl px-6 py-10">
+    <main className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6 sm:py-10">
       <header>
         <Link href="/projects" className="text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100">
           ← 返回我的项目

@@ -19,7 +19,7 @@ export default function Error({
   }, [error]);
 
   return (
-    <div className="mx-auto flex min-h-[50vh] w-full max-w-md flex-col items-center justify-center px-6 py-16 text-center">
+    <div className="mx-auto flex min-h-[50vh] w-full max-w-md flex-col items-center justify-center px-4 py-16 text-center sm:px-6">
       <div className="text-4xl">🗼</div>
       <h1 className="mt-3 text-lg font-semibold tracking-tight">出了点问题</h1>
       <p className="mt-1.5 text-sm leading-relaxed text-zinc-500">

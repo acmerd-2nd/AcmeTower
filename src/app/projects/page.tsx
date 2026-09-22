@@ -32,7 +32,7 @@ export default async function ProjectsPage({
   const cards = await listProjectCards({ q, status: status ?? "ALL" });
 
   return (
-    <main className="mx-auto w-full max-w-6xl px-6 py-10">
+    <main className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 sm:py-10">
       <header className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">我的项目</h1>
@@ -67,7 +67,7 @@ export default async function ProjectsPage({
             name="q"
             defaultValue={q ?? ""}
             placeholder="搜索项目…"
-            className="w-56 rounded-md border border-zinc-300 px-3 py-1.5 text-sm outline-none focus:border-zinc-900 dark:border-zinc-700 dark:bg-zinc-950"
+            className="w-full rounded-md border border-zinc-300 px-3 py-1.5 text-sm outline-none focus:border-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 sm:w-56"
           />
           {status && status !== "ALL" && <input type="hidden" name="status" value={status} />}
           <button

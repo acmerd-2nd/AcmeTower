@@ -2,7 +2,7 @@ import Link from "next/link";
 
 export default function NotFound() {
   return (
-    <div className="mx-auto flex min-h-[60vh] w-full max-w-md flex-col items-center justify-center px-6 py-16 text-center">
+    <div className="mx-auto flex min-h-[60vh] w-full max-w-md flex-col items-center justify-center px-4 py-16 text-center sm:px-6">
       <div className="text-4xl">🔍</div>
       <h1 className="mt-3 text-lg font-semibold tracking-tight">找不到这一页</h1>
       <p className="mt-1.5 text-sm leading-relaxed text-zinc-500">
