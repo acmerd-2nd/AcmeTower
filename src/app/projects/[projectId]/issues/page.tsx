@@ -1,4 +1,5 @@
 import { ActionButton } from "@/components/action-button";
+import { EnhancedForm } from "@/components/enhanced-form";
 import { ErrorBanner, SelectField, StatusPill, Submit, TextArea, TextField } from "@/components/form-bits";
 import { issueAction } from "@/lib/actions/write";
 import { listIssueRows } from "@/lib/data/reads";
@@ -36,7 +37,7 @@ export default async function IssuesPage({
       <h2 className="text-lg font-semibold tracking-tight">Issues · 问题</h2>
       <ErrorBanner message={error} />
 
-      <form action={issueAction} className="mt-4 rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 dark:border-zinc-800 dark:bg-zinc-900/40">
+      <EnhancedForm action={issueAction} done="Issue 已报告 ✓" className="mt-4 rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 dark:border-zinc-800 dark:bg-zinc-900/40">
         <input type="hidden" name="projectId" value={projectId} />
         <input type="hidden" name="_action" value="add" />
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -60,7 +61,7 @@ export default async function IssuesPage({
         <div className="mt-3">
           <Submit label="报告 Issue" />
         </div>
-      </form>
+      </EnhancedForm>
 
       <ul className="mt-6 space-y-3">
         {rows.map((it) => {
@@ -93,7 +94,7 @@ export default async function IssuesPage({
                 {nexts
                   .filter((t) => t === "RESOLVED" || t === "WONT_FIX")
                   .map((t) => (
-                    <form key={t} action={issueAction} className="inline-flex items-center gap-1">
+                    <EnhancedForm key={t} action={issueAction} done={t === "RESOLVED" ? "已解决 ✓" : "已标记不修 ✓"} focus={false} className="inline-flex items-center gap-1">
                       <input type="hidden" name="projectId" value={projectId} />
                       <input type="hidden" name="_action" value="status" />
                       <input type="hidden" name="id" value={it.id} />
@@ -106,7 +107,7 @@ export default async function IssuesPage({
                       <button type="submit" className="rounded-md bg-emerald-600 px-2 py-1 text-xs text-white">
                         {t === "RESOLVED" ? "解决" : "不修"}
                       </button>
-                    </form>
+                    </EnhancedForm>
                   ))}
               </div>
             </li>

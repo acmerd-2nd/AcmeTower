@@ -1,4 +1,5 @@
 import { ActionButton } from "@/components/action-button";
+import { EnhancedForm } from "@/components/enhanced-form";
 import {
   ErrorBanner,
   SelectField,
@@ -40,7 +41,7 @@ export default async function ProposalsPage({
       <p className="mt-1 text-sm text-zinc-500">Agent 想做范围外的事 → 提交提案，由人类批准 / 拒绝 / 延期（Parking Lot）。</p>
       <ErrorBanner message={error} />
 
-      <form action={proposalAction} className="mt-4 rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 dark:border-zinc-800 dark:bg-zinc-900/40">
+      <EnhancedForm action={proposalAction} done="提案已提交 ✓" className="mt-4 rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 dark:border-zinc-800 dark:bg-zinc-900/40">
         <input type="hidden" name="projectId" value={projectId} />
         <input type="hidden" name="_action" value="add" />
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -73,7 +74,7 @@ export default async function ProposalsPage({
         <div className="mt-3">
           <Submit label="提交提案" />
         </div>
-      </form>
+      </EnhancedForm>
 
       <Section title="待批准" rows={pending} projectId={projectId} empty="没有待批准提案。" />
       <Section title="Parking Lot（停车场）" rows={parked} projectId={projectId} empty="停车场为空。" />

@@ -1,4 +1,5 @@
 import { ErrorBanner, Submit, TextArea, TextField } from "@/components/form-bits";
+import { EnhancedForm } from "@/components/enhanced-form";
 import { northStarAction } from "@/lib/actions/write";
 import { httpNorthStar, httpProjectRow } from "@/lib/mcp/httpdata";
 import { ProjectSettingsPanel } from "@/components/project-settings-panel";
@@ -31,7 +32,7 @@ export default async function SettingsPage({
         <p className="mb-4 text-sm text-zinc-500">
           North Star 是项目最高层真相；Agent 只能提交变更提案（Step 10）。
         </p>
-        <form action={northStarAction} className="space-y-3">
+        <EnhancedForm action={northStarAction} done="North Star 已保存 ✓" className="space-y-3">
           <input type="hidden" name="projectId" value={projectId} />
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <TextField name="name" label="名称" placeholder={ns?.name ?? "AcmeTower V0.1"} />
@@ -42,7 +43,7 @@ export default async function SettingsPage({
           <TextArea name="nonGoals" label="明确不做什么" rows={3} placeholder={ns?.nonGoals ?? undefined} />
           <TextArea name="constraints" label="长期约束" rows={2} placeholder={ns?.constraints ?? undefined} />
           <Submit label="保存 North Star" />
-        </form>
+        </EnhancedForm>
       </section>
 
       <div className="mt-4 space-y-4">

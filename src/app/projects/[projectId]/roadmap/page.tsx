@@ -1,4 +1,5 @@
 import { ActionButton } from "@/components/action-button";
+import { EnhancedForm } from "@/components/enhanced-form";
 import { ErrorBanner, StatusPill, Submit, TextArea, TextField } from "@/components/form-bits";
 import { phaseAction } from "@/lib/actions/write";
 import { httpProjectRow } from "@/lib/mcp/httpdata";
@@ -25,7 +26,7 @@ export default async function RoadmapPage({
       <h2 className="text-lg font-semibold tracking-tight">Roadmap · 主线</h2>
       <ErrorBanner message={error} />
 
-      <form action={phaseAction} className="mt-4 rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 dark:border-zinc-800 dark:bg-zinc-900/40">
+      <EnhancedForm action={phaseAction} done="Phase 已添加 ✓" className="mt-4 rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 dark:border-zinc-800 dark:bg-zinc-900/40">
         <input type="hidden" name="projectId" value={projectId} />
         <input type="hidden" name="_action" value="add" />
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -39,7 +40,7 @@ export default async function RoadmapPage({
         <div className="mt-3">
           <Submit label="添加 Phase" />
         </div>
-      </form>
+      </EnhancedForm>
 
       <ol className="mt-6 space-y-3">
         {rows.map((p, i) => {

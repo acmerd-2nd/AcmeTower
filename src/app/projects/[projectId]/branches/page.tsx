@@ -1,4 +1,5 @@
 import { ActionButton } from "@/components/action-button";
+import { EnhancedForm } from "@/components/enhanced-form";
 import {
   ErrorBanner,
   SelectField,
@@ -46,7 +47,7 @@ export default async function BranchesPage({
       {nodeOptions.length <= 1 ? (
         <p className="mt-4 text-sm text-zinc-500">需要至少一个 Phase/Task 作为来源。</p>
       ) : (
-        <form action={branchAction} className="mt-4 rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 dark:border-zinc-800 dark:bg-zinc-900/40">
+        <EnhancedForm action={branchAction} done="分支已创建 ✓" className="mt-4 rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 dark:border-zinc-800 dark:bg-zinc-900/40">
           <input type="hidden" name="projectId" value={projectId} />
           <input type="hidden" name="_action" value="add" />
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -64,7 +65,7 @@ export default async function BranchesPage({
           <div className="mt-3">
             <Submit label="创建分支" />
           </div>
-        </form>
+        </EnhancedForm>
       )}
 
       <ul className="mt-6 space-y-3">
@@ -109,7 +110,7 @@ export default async function BranchesPage({
                       />
                     ))}
                   {open && (
-                    <form action={branchAction} className="inline-flex items-center gap-1">
+                    <EnhancedForm action={branchAction} done="分支已回收 ✓" focus={false} className="inline-flex items-center gap-1">
                       <input type="hidden" name="projectId" value={projectId} />
                       <input type="hidden" name="_action" value="close" />
                       <input type="hidden" name="id" value={b.id} />
@@ -122,7 +123,7 @@ export default async function BranchesPage({
                       <button type="submit" className="rounded-md bg-emerald-600 px-2 py-1 text-xs text-white">
                         回收
                       </button>
-                    </form>
+                    </EnhancedForm>
                   )}
                 </div>
               </div>

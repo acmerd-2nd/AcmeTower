@@ -1,4 +1,5 @@
 import { ErrorBanner, SelectField, Submit, TextArea, TextField } from "@/components/form-bits";
+import { EnhancedForm } from "@/components/enhanced-form";
 import { checkpointAction } from "@/lib/actions/write";
 import { listCheckpointRows, taskOptions } from "@/lib/data/reads";
 
@@ -21,7 +22,7 @@ export default async function CheckpointsPage({
       <p className="mt-1 text-sm text-zinc-500">Agent 阶段工作后的项目状态快照，形成可恢复的时间线。</p>
       <ErrorBanner message={error} />
 
-      <form action={checkpointAction} className="mt-4 rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 dark:border-zinc-800 dark:bg-zinc-900/40">
+      <EnhancedForm action={checkpointAction} done="Checkpoint 已提交 ✓" className="mt-4 rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 dark:border-zinc-800 dark:bg-zinc-900/40">
         <input type="hidden" name="projectId" value={projectId} />
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <div className="sm:col-span-2">
@@ -44,7 +45,7 @@ export default async function CheckpointsPage({
         <div className="mt-3">
           <Submit label="提交 Checkpoint" />
         </div>
-      </form>
+      </EnhancedForm>
 
       <ul className="mt-6 space-y-4">
         {rows.map((c) => (

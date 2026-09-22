@@ -1,4 +1,5 @@
 import { ActionButton } from "@/components/action-button";
+import { EnhancedForm } from "@/components/enhanced-form";
 import { ErrorBanner, StatusPill, Submit, TextArea, TextField } from "@/components/form-bits";
 import { decisionAction } from "@/lib/actions/write";
 import { listDecisionRows } from "@/lib/data/reads";
@@ -23,7 +24,7 @@ export default async function DecisionsPage({
       <h2 className="text-lg font-semibold tracking-tight">Decisions · 决策</h2>
       <ErrorBanner message={error} />
 
-      <form action={decisionAction} className="mt-4 rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 dark:border-zinc-800 dark:bg-zinc-900/40">
+      <EnhancedForm action={decisionAction} done="Decision 已提出 ✓" className="mt-4 rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 dark:border-zinc-800 dark:bg-zinc-900/40">
         <input type="hidden" name="projectId" value={projectId} />
         <input type="hidden" name="_action" value="add" />
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -38,7 +39,7 @@ export default async function DecisionsPage({
         <div className="mt-3">
           <Submit label="提出 Decision" />
         </div>
-      </form>
+      </EnhancedForm>
 
       <ul className="mt-6 space-y-3">
         {rows.map((d) => {

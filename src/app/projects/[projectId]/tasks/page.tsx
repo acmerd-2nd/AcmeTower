@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ActionButton } from "@/components/action-button";
+import { EnhancedForm } from "@/components/enhanced-form";
 import { ProgressForm } from "@/components/progress-form";
 import { ErrorBanner, SelectField, StatusPill, Submit, TextArea, TextField } from "@/components/form-bits";
 import { taskAction } from "@/lib/actions/write";
@@ -41,7 +42,7 @@ export default async function TasksPage({
           </Link>
         </div>
       ) : (
-        <form action={taskAction} className="mt-4 rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 dark:border-zinc-800 dark:bg-zinc-900/40">
+        <EnhancedForm action={taskAction} done="任务已添加 ✓" className="mt-4 rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 dark:border-zinc-800 dark:bg-zinc-900/40">
           <input type="hidden" name="projectId" value={projectId} />
           <input type="hidden" name="_action" value="add" />
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -70,7 +71,7 @@ export default async function TasksPage({
           <div className="mt-3">
             <Submit label="添加任务" />
           </div>
-        </form>
+        </EnhancedForm>
       )}
 
       <ul className="mt-6 space-y-3">

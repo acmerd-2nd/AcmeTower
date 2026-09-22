@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { ActionButton } from "@/components/action-button";
 import { CopyButton } from "@/components/copy-button";
+import { EnhancedForm } from "@/components/enhanced-form";
 import { ErrorBanner, SelectField, Submit, TextField } from "@/components/form-bits";
 import {
   createCredentialAction,
@@ -227,7 +228,7 @@ export default async function AgentsPage({
         </ul>
 
         <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
-          <form action={createAgentAction} className="rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 dark:border-zinc-800 dark:bg-zinc-900/40">
+          <EnhancedForm action={createAgentAction} done="Agent 已创建并绑定 ✓" className="rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 dark:border-zinc-800 dark:bg-zinc-900/40">
             <input type="hidden" name="projectId" value={projectId} />
             <div className="text-xs font-medium text-zinc-500">新建 Agent</div>
             <div className="mt-2 grid gap-2">
@@ -237,9 +238,9 @@ export default async function AgentsPage({
               <SelectField name="permission" label="权限" options={AGENT_PERM} />
               <Submit label="创建并绑定" />
             </div>
-          </form>
+          </EnhancedForm>
 
-          <form action={attachAgentAction} className="rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 dark:border-zinc-800 dark:bg-zinc-900/40">
+          <EnhancedForm action={attachAgentAction} done="已绑定 ✓" className="rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 dark:border-zinc-800 dark:bg-zinc-900/40">
             <input type="hidden" name="projectId" value={projectId} />
             <div className="text-xs font-medium text-zinc-500">绑定已有 Agent 到本项目</div>
             {attachable.length === 0 ? (
@@ -251,7 +252,7 @@ export default async function AgentsPage({
                 <Submit label="绑定" />
               </div>
             )}
-          </form>
+          </EnhancedForm>
         </div>
       </div>
 
@@ -283,10 +284,7 @@ export default async function AgentsPage({
         </pre>
       </div>
 
-      <form
-        action={createCredentialAction}
-        className="mt-6 rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 dark:border-zinc-800 dark:bg-zinc-900/40"
-      >
+      <EnhancedForm action={createCredentialAction} done="令牌已生成 ✓" focus={false} className="mt-6 rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 dark:border-zinc-800 dark:bg-zinc-900/40">
         <input type="hidden" name="projectId" value={projectId} />
         <div className="text-sm font-medium">生成新的连接凭证</div>
         <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -312,7 +310,7 @@ export default async function AgentsPage({
         <div className="mt-3">
           <Submit label="生成令牌" />
         </div>
-      </form>
+      </EnhancedForm>
 
       <div className="mt-6">
         <div className="text-sm font-medium">本项目的连接凭证</div>
