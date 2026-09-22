@@ -2,11 +2,13 @@
 // 前半段：人类 Owner 在网页侧建项目/主线/任务、签发凭证（走应用层，与网页按钮等价）。
 // 后半段：Agent 只持有 Bearer 令牌，通过公网 https://project.acmerd.com/mcp
 //         按接入协议读取→认领→推进→报 Issue→交 Checkpoint，全程走活体 /mcp。
-// 演练项目【保留】，可到网页上查看时间线与主线变化。
 //
-// 运行：ACC_KEEP_PROXY=1 NODE_USE_ENV_PROXY=1 HTTPS_PROXY=http://127.0.0.1:7897 \
-//       npx tsx scripts/demo-agent-run.ts [BASE]
-import { readFileSync } from "node:fs";
+// 运行（本地，读 .env.local，演练项目默认【保留】以便到网页查看时间线）：
+//   ACC_KEEP_PROXY=1 NODE_USE_ENV_PROXY=1 HTTPS_PROXY=http://127.0.0.1:7897 \
+//     npx tsx scripts/demo-agent-run.ts [BASE]
+// 运行（CI，无 .env.local；凭证由 GitHub Secrets 注入 process.env；自动两阶段清理自建项目）：
+//   DEMO_CLEANUP=1 npx tsx scripts/demo-agent-run.ts https://project.acmerd.com
+import { existsSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { Client } from "@modelcontextprotocol/client";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
@@ -14,15 +16,25 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 if (!process.env.ACC_KEEP_PROXY) {
   for (const k of ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"]) delete process.env[k];
 }
-const env: Record<string, string> = {};
-for (const l of readFileSync(".env.local", "utf8").split(/\r?\n/)) {
-  const m = l.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)$/i);
-  if (m) env[m[1]] = m[2].replace(/^["']|["']$/g, "").trim();
+// 本地从 .env.local 取；CI 里该文件不存在，值来自 GitHub Secrets（process.env）。
+const fileEnv: Record<string, string> = {};
+if (existsSync(".env.local")) {
+  for (const l of readFileSync(".env.local", "utf8").split(/\r?\n/)) {
+    const m = l.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)$/i);
+    if (m) fileEnv[m[1]] = m[2].replace(/^["']|["']$/g, "").trim();
+  }
 }
-process.env.DATABASE_URL = env.DATABASE_URL;
-process.env.SUPABASE_URL = env.SUPABASE_URL || env.NEXT_PUBLIC_SUPABASE_URL || "";
-process.env.SUPABASE_SECRET_KEY = env.SUPABASE_SECRET_KEY || "";
+// 合并：process.env（CI Secrets）优先于 .env.local（本地）。
+const pick = (k: string) => process.env[k] || fileEnv[k] || "";
+process.env.DATABASE_URL = pick("DATABASE_URL");
+process.env.SUPABASE_URL = pick("SUPABASE_URL") || pick("NEXT_PUBLIC_SUPABASE_URL");
+process.env.SUPABASE_SECRET_KEY = pick("SUPABASE_SECRET_KEY");
+if (!process.env.DATABASE_URL || !process.env.SUPABASE_SECRET_KEY) {
+  console.error("缺少 DATABASE_URL / SUPABASE_SECRET_KEY（本地放 .env.local；CI 放 GitHub Secrets）");
+  process.exit(2);
+}
 const BASE = process.argv[2] || "https://project.acmerd.com";
+
 
 const W = await import("@/lib/data/writes");
 const P = await import("@/lib/data/projects");
@@ -55,6 +67,9 @@ const tA = await W.createTask(owner, { projectId: project.id, phaseId: ph.id, na
 const tB = await W.createTask(owner, { projectId: project.id, phaseId: ph.id, name: "校对 /help 术语表", purpose: "术语混用让人困惑", successCriteria: "Mission/Checkpoint 等词全站统一" });
 const tC = await W.createTask(owner, { projectId: project.id, phaseId: ph.id, name: "汇总缺口清单", purpose: "给下一个 Phase 定输入" });
 ok(`项目 ${project.id} · 3 个任务`);
+// 记下本次项目 id，供 CI 超时/中断后的兜底回收步骤按 id 精确清理（正常路径由下面 finally 处理）。
+if (process.env.DEMO_CLEANUP) writeFileSync(".e2e-project-id", project.id);
+try {
 
 human("创建 Agent「夜巡 Codex」、绑定 WORKING_WRITE、签发 MCP 令牌");
 const { agent: agentRow } = await AG.createAndBindAgent(owner, {
@@ -194,4 +209,19 @@ const branchEvts = mcpEvents.filter((e) => /BRANCH/i.test(e.action));
 ok(`§37 分支审计事件 ${branchEvts.length} 条：${branchEvts.map((e) => e.action).join("、")}`);
 
 
-console.log(`\n演练项目已保留：${BASE}/projects/${project.id}`);
+console.log(`\n演练项目：${BASE}/projects/${project.id}${process.env.DEMO_CLEANUP ? "（CI：用后即两阶段清理）" : "（保留，可到网页查看时间线）"}`);
+} finally {
+  if (process.env.DEMO_CLEANUP) {
+    try {
+      await P.setProjectStatus(owner, project.id, "ARCHIVED");
+      const s = await P.purgeProject(owner, project.id);
+      const d = s.deleted ?? ({} as Record<string, number>);
+      console.log(`   ✔ [CI] 演练项目已清理（tasks ${d.tasks ?? "?"} / events ${d.events ?? "?"} / creds ${d.credentials ?? "?"}）`);
+      if (existsSync(".e2e-project-id")) unlinkSync(".e2e-project-id");
+    } catch (e) {
+      console.error(`   ✗ [CI] 演练项目清理失败：${(e as Error).message}`);
+      process.exitCode = 1;
+    }
+  }
+}
+
