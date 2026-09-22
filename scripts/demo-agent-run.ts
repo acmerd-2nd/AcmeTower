@@ -80,6 +80,13 @@ agent(`连接 ${BASE}/mcp 成功，listTools = ${(await client.listTools()).tool
 const me = await call("mcp_whoami");
 ok(`whoami → 凭证「${me.credential_name}」· 权限 ${me.permission_level} · token ${me.token_prefix}…`);
 
+// ── §34：真实 Agent 冷启动第一动作就是 project_get_context，断言旗舰读工具的关键结构齐全 ──
+const ctx = await call("project_get_context");
+const needCtx = ["project", "current_position", "current_mission", "scope", "next_actions", "open_issues"];
+const missingCtx = needCtx.filter((k) => ctx?.[k] === undefined);
+if (missingCtx.length) throw new Error(`§34 project_get_context 缺字段：${missingCtx.join(", ")}`);
+ok(`get_context §34 齐备：position=${ctx.current_position?.phase?.name}/${ctx.current_position?.task?.name ?? "—"} · scope.do_not=「${ctx.scope?.do_not ?? "—"}」 · next_actions ${ctx.next_actions?.length} 条`);
+
 const mission = await call("project_get_current_mission");
 agent(`读取 Current Mission：当前位于 ${mission.current_position?.phase?.name ?? "（无）"} / objective=${mission.mission?.objective ?? "—"}`);
 
@@ -89,8 +96,14 @@ ok(`路线图拿到 ${todoTasks.length} 个 TODO 任务：${todoTasks.map((t: an
 
 agent(`认领任务「${tA.name}」→ IN_PROGRESS`);
 await call("project_update_task", { task_id: tA.id, status: "IN_PROGRESS" });
-await call("project_update_task", { task_id: tA.id, progress: 60 });
-ok("推进到 60%（模拟逐条实测安装步骤）");
+// §36：带状态注记（summary/next_action/blockers）——应落进审计、Timeline 可见，绝不静默丢弃
+await call("project_update_task", {
+  task_id: tA.id, progress: 60,
+  summary: "安装步骤逐条实测中：node 22 与 wrangler 版本要求已在 README 补注",
+  next_action: "补完 Cloudflare 部署章节后交 Checkpoint",
+  blockers: ["README 缺少 opennext 构建步骤说明"],
+});
+ok("推进到 60%（§36 状态注记已写入审计）");
 const doneA = await call("project_update_task", { task_id: tA.id, progress: 100, status: "COMPLETED" });
 ok(`「${tA.name}」完成（状态 ${doneA.status}）`);
 
@@ -125,12 +138,60 @@ const cp = await call("project_create_checkpoint", {
 ok(`Checkpoint 已提交（${cp.id.slice(0, 8)}…）——下一个 Agent 冷启动可从这里接上`);
 
 const recent = await call("project_get_recent_checkpoints");
-ok(`回读最近 Checkpoints：${(recent.checkpoints ?? recent.items ?? []).length} 条`);await transport.close();
+ok(`回读最近 Checkpoints：${(recent.checkpoints ?? recent.items ?? []).length} 条`);
+
+// ── §37 之一：权限门控——WORKING_WRITE 令牌不应拿到 create_branch ──
+let permGated = false;
+try {
+  const r = await client.callTool({ name: "project_create_branch", arguments: { source_type: "TASK", source_id: tC.id, name: "x", reason: "x", goal: "x", return_point_type: "TASK", return_point_id: tC.id } });
+  permGated = !!r.isError;
+} catch { permGated = true; }
+ok(`WORKING_WRITE 调 create_branch 被拒（权限门控）：${permGated ? "是 ✔" : "否 ✗（异常）"}`);
+await transport.close();
+
+// ── §37 之二：STRUCTURAL_WRITE 才能真正建分支；且 return point 不存在必须被服务端拒绝 ──
+human("签发 STRUCTURAL_WRITE 令牌，验证分支的创建/回收与 return point 存在性校验");
+const credS = await CR.createCredential(owner, { projectId: project.id, name: "struct-token", permissionLevel: "STRUCTURAL_WRITE", agentId: agentRow.id });
+const clientS = new Client({ name: "nightwatch-struct", version: "1.0" });
+const trS = new StreamableHTTPClientTransport(new URL(`${BASE}/mcp`), { requestInit: { headers: { authorization: `Bearer ${credS.token}` } } });
+await clientS.connect(trS);
+const callS = async (name: string, args: Record<string, unknown> = {}) => {
+  const r = await clientS.callTool({ name, arguments: args });
+  if (r.isError) throw new Error(`${name} 失败：${(r.content?.[0] as { text?: string })?.text ?? ""}`);
+  return parse(r);
+};
+const bogus = "00000000-0000-0000-0000-000000000000";
+let rejected = false;
+try {
+  await callS("project_create_branch", { source_type: "TASK", source_id: tC.id, name: "幽灵分支", reason: "应被拒", goal: "return point 不存在", return_point_type: "TASK", return_point_id: bogus });
+} catch (e) { rejected = /Return Point|不存在|forbidden|not/i.test(String((e as Error).message)); }
+ok(`return point 不存在的 create_branch 被服务端拒绝（§37）：${rejected ? "是 ✔" : "否 ✗"}`);
+if (!rejected) throw new Error("§37 校验未生效：非法 return point 竟被接受");
+
+const br = await callS("project_create_branch", {
+  source_type: "TASK", source_id: tC.id, name: "调研文档自动化", reason: "缺口清单需要可复用的校对流程",
+  goal: "评估是否引入 lint 校验 README 命令块", success_criteria: "给出可行/不可行结论 + 成本",
+  return_point_type: "TASK", return_point_id: tC.id,
+});
+ok(`分支「${br.name}」已创建（${br.id.slice(0, 8)}…，回到 ${br.return_point_type ?? "TASK"}）`);
+const brClosed = await callS("project_close_branch", { branch_id: br.id, resolution: "结论：先手写规范，自动化留待 V0.2 评估" });
+ok(`分支已回收（状态 ${brClosed.status ?? "RESOLVED"}），主线回到任务 C`);
+await trS.close();
+
 
 human("回到网页侧验证审计：Timeline 里 MCP 来源的事件");
 const tl = await TL.getTimeline(project.id, { limit: 50 });
 const mcpEvents = tl.filter((e) => e.source === "MCP");
 console.log(`   ✔ 共 ${tl.length} 条事件，其中 Agent 写入 ${mcpEvents.length} 条：`);
 for (const e of mcpEvents.slice(0, 12)) console.log(`     · ${e.action} — ${(e.summary ?? "").slice(0, 46)}`);
+
+// §36：状态注记必须织进审计 summary（Timeline 可见），否则视为静默丢弃 → 断言失败
+const noteEvt = mcpEvents.find((e) => e.action === "TASK_UPDATED" && /下一步/.test(e.summary ?? "") && /阻塞/.test(e.summary ?? ""));
+if (!noteEvt) throw new Error("§36 注记未进入审计 summary（summary/next_action/blockers 被丢弃）");
+ok(`§36 注记已入审计：「${(noteEvt.summary ?? "").slice(0, 60)}…」`);
+// §37：分支创建 + 回收两条 MCP 事件应在时间线留下痕迹
+const branchEvts = mcpEvents.filter((e) => /BRANCH/i.test(e.action));
+ok(`§37 分支审计事件 ${branchEvts.length} 条：${branchEvts.map((e) => e.action).join("、")}`);
+
 
 console.log(`\n演练项目已保留：${BASE}/projects/${project.id}`);

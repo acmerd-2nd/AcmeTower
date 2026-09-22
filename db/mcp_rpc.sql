@@ -114,7 +114,14 @@ begin
   end if;
 
   perform public.mcp_log(r.project_id, p_actor, 'TASK_UPDATED', 'task', r.id,
-    '更新任务「'||r.name||'」', null, p_patch);
+    '更新任务「' || r.name || '」'
+      || coalesce(case when coalesce(p_patch->>'summary','') <> '' then '：' || (p_patch->>'summary') end, '')
+      || coalesce(case when coalesce(p_patch->>'next_action','') <> '' then '（下一步：' || (p_patch->>'next_action') || '）' end, '')
+      || coalesce(case
+            when jsonb_typeof(p_patch->'blockers') = 'array' and jsonb_array_length(p_patch->'blockers') > 0
+            then '（阻塞：' || (select string_agg(b, '、') from jsonb_array_elements_text(p_patch->'blockers') as b) || '）'
+          end, ''),
+    null, p_patch);
   return to_jsonb(r);
 end $$;
 

@@ -316,7 +316,7 @@ export const MCP_TOOLS: McpToolSpec[] = [
   // ───────────── WORKING_WRITE ─────────────
   {
     name: "project_update_task", title: "Update task", required: "WORKING_WRITE", readOnly: false,
-    description: "Update a task's fields and/or move its status through the state machine. Pass expected_version for optimistic concurrency (omit = last write wins). §36.",
+    description: "Update a task's fields and/or move its status through the state machine. Pass expected_version for optimistic concurrency (omit = last write wins). Optional summary/next_action/blockers are recorded into the audit trail (Timeline) so the next agent sees your status note — they are NOT stored as task columns. §36.",
     input: z.object({
       task_id: uuid(),
       status: enumFrom(taskStatus.enumValues).optional().describe("New status; must be a legal transition"),
@@ -326,6 +326,9 @@ export const MCP_TOOLS: McpToolSpec[] = [
       success_criteria: optStr("成功标准"),
       description: optStr("描述"),
       priority: enumFrom(taskPriority.enumValues).optional(),
+      summary: optStr("本次推进说明（写入审计，不落任务列）"),
+      next_action: optStr("你留下的下一步（写入审计）"),
+      blockers: z.array(z.string()).optional().describe("阻塞项（写入审计）"),
       expected_version: z.number().int().positive().optional(),
     }),
     async run(a, p) {
@@ -337,6 +340,11 @@ export const MCP_TOOLS: McpToolSpec[] = [
       if (a.success_criteria !== undefined) patch.success_criteria = a.success_criteria;
       if (a.description !== undefined) patch.description = a.description;
       if (a.priority != null) patch.priority = a.priority;
+      // §36 状态注记：作为非列键并入 patch，RPC 的 UPDATE 只认列键（不污染字段），
+      // 但 mcp_update_task 会把它们织进审计 summary 并存入 after → Timeline 可见、绝不静默丢弃。
+      if (a.summary) patch.summary = a.summary;
+      if (a.next_action) patch.next_action = a.next_action;
+      if (a.blockers && a.blockers.length) patch.blockers = a.blockers;
       let row: Task | null = null;
       if (Object.keys(patch).length) row = await httpUpdateTask(p, a.task_id, patch, a.expected_version);
       if (a.status) row = await httpSetTaskStatus(p, a.task_id, a.status);
