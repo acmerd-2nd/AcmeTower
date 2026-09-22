@@ -76,7 +76,14 @@ export default async function DecisionsPage({
             </li>
           );
         })}
-        {rows.length === 0 && <li className="text-sm text-zinc-400">还没有 Decision。</li>}
+        {rows.length === 0 && (
+          <li className="rounded-xl border border-dashed border-zinc-300 px-6 py-10 text-center dark:border-zinc-700">
+            <div className="text-2xl">⚖️</div>
+            <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+              还没有 Decision。技术选型、范围取舍这类要留痕的拍板，用上方表单记录：标题 + 决策内容 + 原因 + 影响。
+            </p>
+          </li>
+        )}
       </ul>
     </div>
   );

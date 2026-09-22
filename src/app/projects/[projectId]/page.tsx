@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { getProjectSpace, type ProjectSpace } from "@/lib/data/project";
-import { statusLabel } from "@/lib/core/labels";
+import { statusLabel, permLabel } from "@/lib/core/labels";
 
 export const dynamic = "force-dynamic";
 
@@ -132,7 +132,7 @@ function Mainline({ space }: { space: ProjectSpace }) {
                 }`}
               >
                 {p.name}
-                {isCurrent && <span className="ml-2 text-xs text-zinc-400">● current</span>}
+                {isCurrent && <span className="ml-2 text-xs text-zinc-400">· 当前</span>}
               </span>
               <span className="w-16 shrink-0 text-right text-xs tabular-nums text-zinc-400">
                 {p.doneCount}/{p.taskCount} · {p.progress}%
@@ -183,7 +183,7 @@ function Signals({ space }: { space: ProjectSpace }) {
                 key={a.id}
                 className="rounded-full bg-zinc-100 px-2 py-0.5 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
               >
-                {a.name} · {a.permissionLevel}
+                {a.name} · {permLabel(a.permissionLevel)}
               </span>
             ))}
           </div>

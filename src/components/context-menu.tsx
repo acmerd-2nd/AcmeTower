@@ -72,6 +72,7 @@ export function useContextMenu(items: MenuItem[]) {
             {it.separatorBefore && <div className="my-1 border-t border-zinc-100 dark:border-zinc-800" />}
             {it.href ? (
               <a
+                role="menuitem"
                 href={it.href}
                 {...(it.download ? { download: true } : {})}
                 onClick={close}
@@ -85,6 +86,7 @@ export function useContextMenu(items: MenuItem[]) {
             ) : (
               <button
                 type="button"
+                role="menuitem"
                 onClick={() => {
                   close();
                   it.onSelect?.();

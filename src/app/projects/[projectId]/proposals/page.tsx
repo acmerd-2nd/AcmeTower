@@ -10,6 +10,7 @@ import {
 import { proposalAction } from "@/lib/actions/write";
 import { listProposalRows, taskOptions } from "@/lib/data/reads";
 import { PROPOSAL_TRANSITIONS } from "@/lib/core/state-machines";
+import { statusLabel } from "@/lib/core/labels";
 
 export const dynamic = "force-dynamic";
 
@@ -113,7 +114,7 @@ function Section({
                     <ActionButton
                       key={to}
                       tone={to === "APPROVED" ? "solid" : to === "REJECTED" ? "danger" : "ghost"}
-                      label={to === "PARKED" ? "停到停车场" : to === "PENDING" ? "回到待批准" : to}
+                      label={to === "PARKED" ? "停到停车场" : to === "PENDING" ? "回到待批准" : statusLabel(to)}
                       action={proposalAction}
                       fields={[
                         { name: "projectId", value: projectId },

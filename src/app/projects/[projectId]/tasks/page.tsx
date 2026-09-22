@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ActionButton } from "@/components/action-button";
+import { ProgressForm } from "@/components/progress-form";
 import { ErrorBanner, SelectField, StatusPill, Submit, TextArea, TextField } from "@/components/form-bits";
 import { taskAction } from "@/lib/actions/write";
 import { httpProjectRow } from "@/lib/mcp/httpdata";
@@ -88,28 +89,13 @@ export default async function TasksPage({
                   <div className="flex items-center gap-2">
                     <StatusPill status={t.status} />
                     <span className="text-xs text-zinc-400">{t.phaseName}</span>
-                    {isCurrent && <span className="text-xs font-medium text-zinc-500">● current</span>}
+                    {isCurrent && <span className="text-xs font-medium text-zinc-500">· 当前</span>}
                   </div>
                   <div className="mt-1 font-medium">{t.name}</div>
                   {t.purpose && <div className="mt-0.5 line-clamp-1 text-sm text-zinc-500">{t.purpose}</div>}
                 </div>
                 <div className="flex flex-wrap items-center justify-end gap-1.5">
-                  <form action={taskAction} className="inline-flex items-center gap-1">
-                    <input type="hidden" name="projectId" value={projectId} />
-                    <input type="hidden" name="_action" value="progress" />
-                    <input type="hidden" name="id" value={t.id} />
-                    <input
-                      type="number"
-                      name="progress"
-                      min={0}
-                      max={100}
-                      defaultValue={t.progress}
-                      className="w-16 rounded-md border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-950"
-                    />
-                    <button type="submit" className="rounded-md border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700">
-                      %
-                    </button>
-                  </form>
+                  <ProgressForm projectId={projectId} taskId={t.id} value={t.progress} />
                   {!isCurrent && (
                     <ActionButton
                       tone="solid"

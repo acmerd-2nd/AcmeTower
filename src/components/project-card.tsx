@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import {
   archiveProjectAction,
   renameProjectAction,
@@ -56,10 +56,14 @@ export function ProjectCard({ card }: { card: Card }) {
 
   function run(action: (fd: FormData) => Promise<unknown> | void, msg: string) {
     start(async () => {
-      const fd = new FormData();
-      fd.set("id", card.id);
-      await action(fd);
-      toast(msg);
+      try {
+        const fd = new FormData();
+        fd.set("id", card.id);
+        await action(fd);
+        toast(msg);
+      } catch (e) {
+        toast(`操作失败：${(e as Error).message || "未知错误"}`);
+      }
       router.refresh();
     });
   }
@@ -195,6 +199,14 @@ function RenameDialog({
   const [value, setValue] = useState(name);
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
+
+  // 每次打开都同步最新名字并清报错（改名后服务端数据变了，本地 state 不会自动跟）
+  useEffect(() => {
+    if (open) {
+      setValue(name);
+      setError(null);
+    }
+  }, [open, name]);
 
   function submit() {
     const v = value.trim();

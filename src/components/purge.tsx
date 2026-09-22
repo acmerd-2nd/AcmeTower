@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Modal } from "./modal";
 import { toast } from "./toast";
@@ -28,6 +28,14 @@ export function PurgeDialog({
   const [pending, start] = useTransition();
   const router = useRouter();
   const ready = confirmText === name && !pending;
+
+  // 每次重新打开都清空上次的输入/报错，避免残留状态误导
+  useEffect(() => {
+    if (open) {
+      setConfirmText("");
+      setError(null);
+    }
+  }, [open]);
 
   function submit() {
     if (!ready) return;

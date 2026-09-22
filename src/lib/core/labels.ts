@@ -37,6 +37,17 @@ export function statusLabel(status: string): string {
   return STATUS_LABELS[status] ?? status;
 }
 
+/** MCP 权限级别（§26–§29 / §42） */
+export const PERMISSION_LABELS: Record<string, string> = {
+  READ: "只读",
+  WORKING_WRITE: "工作写入",
+  STRUCTURAL_WRITE: "结构写入",
+  GOVERNANCE: "治理",
+};
+export function permLabel(level: string): string {
+  return PERMISSION_LABELS[level] ?? level;
+}
+
 /** activity_events.source：谁干的 */
 export const SOURCE_LABELS: Record<string, string> = {
   ALL: "全部",

@@ -22,10 +22,17 @@ import {
 } from "@/lib/data/credentials";
 import { listProjectAgents, unboundAgents } from "@/lib/data/agents";
 import { httpProjectRow } from "@/lib/mcp/httpdata";
+import { permLabel } from "@/lib/core/labels";
 
 export const dynamic = "force-dynamic";
 
 const TOKEN_COOKIE = "acme_mcp_token";
+
+const CRED_STATUS_LABEL: Record<CredentialStatus, string> = {
+  ACTIVE: "有效",
+  EXPIRED: "已过期",
+  REVOKED: "已撤销",
+};
 
 const STATUS_STYLE: Record<CredentialStatus, string> = {
   ACTIVE: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300",
@@ -60,9 +67,9 @@ const PERMISSIONS = [
 ];
 
 const AGENT_PERM = [
-  { value: "READ", label: "READ" },
-  { value: "WORKING_WRITE", label: "WORKING_WRITE" },
-  { value: "STRUCTURAL_WRITE", label: "STRUCTURAL_WRITE" },
+  { value: "READ", label: "READ — 只读" },
+  { value: "WORKING_WRITE", label: "WORKING_WRITE — 工作写入" },
+  { value: "STRUCTURAL_WRITE", label: "STRUCTURAL_WRITE — 结构写入" },
 ];
 
 export default async function AgentsPage({
@@ -173,7 +180,7 @@ export default async function AgentsPage({
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="font-medium">{a.name}</span>
-                    <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${PERM_STYLE[a.permissionLevel] ?? ""}`}>{a.permissionLevel}</span>
+                    <span title={a.permissionLevel} className={`rounded-full px-2 py-0.5 text-xs font-medium ${PERM_STYLE[a.permissionLevel] ?? ""}`}>{permLabel(a.permissionLevel)}</span>
                     {!a.enabled && <span className="text-xs text-zinc-400">已停用</span>}
                   </div>
                   <div className="mt-0.5 text-xs text-zinc-500">
@@ -214,7 +221,9 @@ export default async function AgentsPage({
               </div>
             </li>
           ))}
-          {boundAgents.length === 0 && <li className="text-sm text-zinc-400">还没有 Agent 绑定到本项目。</li>}
+          {boundAgents.length === 0 && (
+            <li className="text-sm text-zinc-400">还没有 Agent 绑定到本项目。用下方「新建 Agent」创建，或绑定一个已有的。</li>
+          )}
         </ul>
 
         <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -320,10 +329,10 @@ export default async function AgentsPage({
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-medium">{c.name}</span>
-                    <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${PERM_STYLE[c.permissionLevel] ?? ""}`}>
-                      {c.permissionLevel}
+                    <span title={c.permissionLevel} className={`rounded-full px-2 py-0.5 text-xs font-medium ${PERM_STYLE[c.permissionLevel] ?? ""}`}>
+                      {permLabel(c.permissionLevel)}
                     </span>
-                    <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_STYLE[status]}`}>{status}</span>
+                    <span title={status} className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_STYLE[status]}`}>{CRED_STATUS_LABEL[status]}</span>
                   </div>
                   <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-zinc-500">
                     <span className="font-mono">{c.tokenPrefix}••••••</span>

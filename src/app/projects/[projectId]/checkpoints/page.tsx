@@ -62,7 +62,15 @@ export default async function CheckpointsPage({
             {c.nextAction && <div className="mt-2 text-sm text-zinc-500">下一步：{c.nextAction}</div>}
           </li>
         ))}
-        {rows.length === 0 && <li className="text-sm text-zinc-400">还没有 Checkpoint。</li>}
+        {rows.length === 0 && (
+          <li className="rounded-xl border border-dashed border-zinc-300 px-6 py-10 text-center dark:border-zinc-700">
+            <div className="text-2xl">📸</div>
+            <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+              还没有 Checkpoint。做完一段工作就存一个「存档点」：写清完成了什么、还差什么、下一步是什么。
+            </p>
+            <p className="mt-1 text-xs text-zinc-400">Agent 通过 MCP 推进时也会自动提交，方便下一个接手的会话冷启动。</p>
+          </li>
+        )}
       </ul>
     </div>
   );

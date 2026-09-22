@@ -59,7 +59,7 @@ export default async function RoadmapPage({
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-zinc-400">Phase {i + 1}</span>
                     <StatusPill status={p.status} />
-                    {isCurrent && <span className="text-xs font-medium text-zinc-500">● current</span>}
+                    {isCurrent && <span className="text-xs font-medium text-zinc-500">· 当前</span>}
                   </div>
                   <div className="mt-1 truncate font-medium">{p.name}</div>
                   {p.goal && <div className="mt-0.5 truncate text-sm text-zinc-500">{p.goal}</div>}

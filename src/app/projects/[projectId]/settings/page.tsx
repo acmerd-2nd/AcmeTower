@@ -1,6 +1,7 @@
 import { ErrorBanner, Submit, TextArea, TextField } from "@/components/form-bits";
 import { northStarAction } from "@/lib/actions/write";
-import { httpNorthStar } from "@/lib/mcp/httpdata";
+import { httpNorthStar, httpProjectRow } from "@/lib/mcp/httpdata";
+import { ProjectSettingsPanel } from "@/components/project-settings-panel";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +14,7 @@ export default async function SettingsPage({
 }) {
   const { projectId } = await params;
   const { error } = await searchParams;
-  const ns = await httpNorthStar(projectId);
+  const [ns, project] = await Promise.all([httpNorthStar(projectId), httpProjectRow(projectId)]);
 
   return (
     <div>
@@ -44,7 +45,23 @@ export default async function SettingsPage({
         </form>
       </section>
 
-      <p className="mt-4 text-xs text-zinc-400">项目设置（重命名 / 归档 / 导出 JSON）将在 Step 12 补充。</p>
+      <div className="mt-4 space-y-4">
+        {project && (
+          <ProjectSettingsPanel
+            projectId={project.id}
+            name={project.name}
+            slug={project.slug}
+            status={project.status}
+            version={project.version}
+          />
+        )}
+        <a
+          href={`/projects/${projectId}/export`}
+          className="inline-block text-sm text-zinc-500 underline-offset-4 hover:underline dark:text-zinc-400"
+        >
+          导出本项目全量 JSON（含主线/任务/决策/审计）→
+        </a>
+      </div>
     </div>
   );
 }

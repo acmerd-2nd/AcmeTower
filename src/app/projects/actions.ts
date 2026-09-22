@@ -48,6 +48,8 @@ export async function archiveProjectAction(formData: FormData) {
   if (!id) return;
   await setProjectStatus(actor, id, "ARCHIVED");
   revalidatePath("/projects");
+  revalidatePath("/projects/trash");
+  revalidatePath(`/projects/${id}`);
 }
 
 export async function restoreProjectAction(formData: FormData) {
@@ -56,6 +58,27 @@ export async function restoreProjectAction(formData: FormData) {
   if (!id) return;
   await setProjectStatus(actor, id, "ACTIVE");
   revalidatePath("/projects");
+  revalidatePath("/projects/trash");
+  revalidatePath(`/projects/${id}`);
+}
+
+/** Settings 页「项目治理」：ACTIVE/PAUSED/COMPLETED/ARCHIVED 互转（仅人类 Web）。 */
+export async function projectStatusAction(formData: FormData): Promise<ActionResult> {
+  const actor = await requireWebActor();
+  const id = String(formData.get("id") ?? "");
+  const status = String(formData.get("status") ?? "");
+  if (!id || !["ACTIVE", "PAUSED", "COMPLETED", "ARCHIVED"].includes(status)) {
+    return { ok: false, error: "参数不合法" };
+  }
+  try {
+    await setProjectStatus(actor, id, status as "ACTIVE" | "PAUSED" | "COMPLETED" | "ARCHIVED");
+  } catch (e) {
+    return { ok: false, error: (e as Error).message || "状态更新失败" };
+  }
+  revalidatePath("/projects");
+  revalidatePath("/projects/trash");
+  revalidatePath(`/projects/${id}`);
+  return { ok: true };
 }
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
