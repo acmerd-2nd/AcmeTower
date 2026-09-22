@@ -35,6 +35,7 @@ export interface ProjectSpace {
   signals: {
     openBranches: number;
     openIssues: number;
+    openIssueList: { id: string; title: string; severity: string; status: string }[];
     pendingProposals: number;
     agents: {
       id: string;

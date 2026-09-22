@@ -478,7 +478,7 @@ export async function httpProjectSpace(projectId: string): Promise<ProjectSpace 
     restSelect(`phases`, `project_id=eq.${p}&deleted_at=is.null&order=order_index.asc`),
     restSelect(`tasks`, `project_id=eq.${p}&deleted_at=is.null&order=created_at.asc`),
     restSelect(`branches`, `project_id=eq.${p}&status=in.(${OPEN_BRANCH})&deleted_at=is.null&order=updated_at.desc`),
-    restSelect(`issues`, `project_id=eq.${p}&status=in.(${OPEN_ISSUE})`, { columns: "id" }),
+    restSelect(`issues`, `project_id=eq.${p}&status=in.(${OPEN_ISSUE})&deleted_at=is.null&order=created_at.desc`, { columns: "id,title,severity,status" }),
     restSelect(`proposals`, `project_id=eq.${p}&status=eq.PENDING`, { columns: "id" }),
     restSelect(`decisions`, `project_id=eq.${p}&deleted_at=is.null&order=updated_at.desc&limit=5`),
     restSelect(`checkpoints`, `project_id=eq.${p}&deleted_at=is.null&order=created_at.desc&limit=3`, { columns: "*,agents(name)" }),
@@ -534,6 +534,12 @@ export async function httpProjectSpace(projectId: string): Promise<ProjectSpace 
     signals: {
       openBranches: openBranches.length,
       openIssues: openIssueRaw.length,
+      openIssueList: openIssueRaw.map((r) => ({
+        id: String((r as Row).id),
+        title: s((r as Row).title) ?? "",
+        severity: s((r as Row).severity) ?? "MEDIUM",
+        status: s((r as Row).status) ?? "OPEN",
+      })),
       pendingProposals: pendingProposalRaw.length,
       agents: agentRaw.map((a) => {
         const ag = (a as Row).agents as { id?: string; name?: string; provider?: string | null } | null;

@@ -140,6 +140,36 @@ export const MCP_TOOLS: McpToolSpec[] = [
     async run(_a, p) {
       const s = await httpProjectSpace(p.projectId);
       if (!s) throw new NotFoundError("Project");
+      const ph = s.currentPhase;
+      const tk = s.currentTask;
+      const br = s.currentBranch;
+
+      // §34 scope：当前工作被允许的边界与明确的“不要做”，让 Agent 一眼看清可动与不可动。
+      const scope = {
+        phase: ph && { name: ph.name, goal: ph.goal, scope: ph.scope },
+        task: tk && { name: tk.name, purpose: tk.purpose, success_criteria: tk.successCriteria },
+        branch: br && { name: br.name, goal: br.goal, return_to: `${br.returnPointType}:${br.returnPointId}` },
+        do_not: s.mission.doNot,
+      };
+
+      // §34 next_actions：根据当前位置给出具体、可执行的下一步（含治理红线与越界自查）。
+      const next_actions: string[] = [];
+      if (br) {
+        next_actions.push(`聚焦分支「${br.name}」的目标；得出结论后用 project_close_branch 回收，并把结果带回主线`);
+      } else if (!tk) {
+        next_actions.push("当前没有进行中的任务：先 project_get_roadmap 看结构，认领/推进你负责的 Task（project_update_task）；设定当前任务属治理操作，需要时走 proposal 交人");
+      } else if (tk.status === "BLOCKED") {
+        next_actions.push(`排查「${tk.name}」的阻塞原因；如需记录用 project_create_issue 上报，解除后 project_update_task 设回 IN_PROGRESS`);
+      } else if (tk.status === "TODO") {
+        next_actions.push(`用 project_update_task 把「${tk.name}」设为 IN_PROGRESS 开始执行`);
+      } else {
+        next_actions.push(`推进「${tk.name}」（${tk.progress}%）；阶段性完成时用 project_create_checkpoint 汇报`);
+      }
+      next_actions.push("拿不准是否越界先 project_check_drift；要改方向/范围或触碰 North Star、决策等治理内容时，用 project_create_proposal 交人批准，勿擅改");
+      if (s.signals.openIssues > 0) {
+        next_actions.push(`项目有 ${s.signals.openIssues} 个未关闭 Issue，可 project_get_open_issues 查看是否与当前任务相关`);
+      }
+
       return {
         project: { id: s.project.id, name: s.project.name, status: s.project.status, health: s.project.health },
         north_star: s.northStar && {
@@ -147,16 +177,19 @@ export const MCP_TOOLS: McpToolSpec[] = [
           success_criteria: s.northStar.successCriteria, non_goals: s.northStar.nonGoals, constraints: s.northStar.constraints,
         },
         current_position: {
-          phase: s.currentPhase && { id: s.currentPhase.id, name: s.currentPhase.name, status: s.currentPhase.status, progress: s.currentPhase.progress },
-          task: s.currentTask && { id: s.currentTask.id, name: s.currentTask.name, status: s.currentTask.status, progress: s.currentTask.progress },
-          branch: s.currentBranch && { id: s.currentBranch.id, name: s.currentBranch.name, status: s.currentBranch.status },
+          phase: ph && { id: ph.id, name: ph.name, status: ph.status, progress: ph.progress },
+          task: tk && { id: tk.id, name: tk.name, status: tk.status, progress: tk.progress },
+          branch: br && { id: br.id, name: br.name, status: br.status },
         },
         current_mission: s.mission,
+        scope,
+        next_actions,
+        relevant_decisions: s.signals.recentDecisions.map((d) => ({ id: d.id, title: d.title, decision: d.decision, status: d.status })),
+        open_issues: s.signals.openIssueList,
+        recent_checkpoints: s.signals.recentCheckpoints.map((c) => ({ id: c.id, summary: c.summary, created_at: c.createdAt })),
         signals: {
           open_branches: s.signals.openBranches, open_issues: s.signals.openIssues,
           pending_proposals: s.signals.pendingProposals,
-          recent_decisions: s.signals.recentDecisions.map((d) => ({ id: d.id, title: d.title, status: d.status })),
-          recent_checkpoints: s.signals.recentCheckpoints.map((c) => ({ id: c.id, summary: c.summary, created_at: c.createdAt })),
         },
       };
     },
