@@ -11,17 +11,31 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 if (!process.env.ACC_KEEP_PROXY) {
   for (const k of ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"]) delete process.env[k];
 }
-const env: Record<string, string> = {};
-for (const l of readFileSync(".env.local", "utf8").split(/\r?\n/)) {
-  const m = l.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)$/i);
-  if (m) env[m[1]] = m[2].replace(/^["']|["']$/g, "").trim();
+// 本地从 .env.local 取；CI 里该文件不存在，值来自 GitHub Secrets（process.env）。process.env 优先。
+import { existsSync } from "node:fs";
+const fileEnv: Record<string, string> = {};
+if (existsSync(".env.local")) {
+  for (const l of readFileSync(".env.local", "utf8").split(/\r?\n/)) {
+    const m = l.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)$/i);
+    if (m) fileEnv[m[1]] = m[2].replace(/^["']|["']$/g, "").trim();
+  }
 }
+const pick = (k: string) => process.env[k] || fileEnv[k] || "";
+const env: Record<string, string> = {
+  DATABASE_URL: pick("DATABASE_URL"),
+  SUPABASE_URL: pick("SUPABASE_URL") || pick("NEXT_PUBLIC_SUPABASE_URL"),
+  SUPABASE_SECRET_KEY: pick("SUPABASE_SECRET_KEY"),
+};
 process.env.DATABASE_URL = env.DATABASE_URL;
 // Web writes now go over the shared HTTPS RPC layer (V0.2), so the in-Node data
 // layer needs the same service_role env the worker has. Set BEFORE importing W so
 // lib/core/rest.ts captures them at module load.
-process.env.SUPABASE_URL = env.SUPABASE_URL || env.NEXT_PUBLIC_SUPABASE_URL || "";
-process.env.SUPABASE_SECRET_KEY = env.SUPABASE_SECRET_KEY || "";
+process.env.SUPABASE_URL = env.SUPABASE_URL;
+process.env.SUPABASE_SECRET_KEY = env.SUPABASE_SECRET_KEY;
+if (!env.DATABASE_URL || !env.SUPABASE_SECRET_KEY) {
+  console.error("缺少 DATABASE_URL / SUPABASE_SECRET_KEY（本地放 .env.local；CI 放 GitHub Secrets）");
+  process.exit(2);
+}
 const BASE = process.argv[2] || "http://localhost:3100";
 
 // real app layers
