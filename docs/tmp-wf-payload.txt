@@ -1,0 +1,143 @@
+name: MCP E2E (nightwatch)
+
+# 推 main 或手动触发；针对【生产】 https://project.acmerd.com 依次跑
+#   §82 公网验收（12 项）+ §34–§40 活体演练。
+# 跑在 self-hosted runner（本机 E:\actions-runner，服务名
+# actions.runner.acmerd-2nd-AcmeTower.acme-ci）上：GitHub 托管 runner 的出口 IP
+# 会被 Cloudflare 免费版的 Bot Fight 模式质询（/mcp 返 403，本机返 401），
+# 而 Free 套餐的 WAF Skip 无法只针对单个 host 放行，故改本机执行。
+# Windows runner 默认 shell 是 pwsh，因此每个 bash 步骤都显式写 shell: bash。
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mcp-e2e
+  cancel-in-progress: false
+
+jobs:
+  mcp-e2e:
+    name: §82 + §34–§40 @ 生产
+    runs-on: [self-hosted, acmetower]
+    timeout-minutes: 20
+    env:
+      BASE_URL: https://project.acmerd.com
+      DEMO_CLEANUP: "1" # 演练项目用后即两阶段清理，不留垃圾
+      DATABASE_URL: ${{ secrets.DATABASE_URL }} # 会话池 :5432（非事务池 :6543）
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }} # service_role，仅注入 runner
+      # 本机 egress：探活/Supabase 走本地代理；ACC_KEEP_PROXY 防止脚本把代理变量抹掉，
+      # NODE_USE_ENV_PROXY 让 Node 的 fetch 也认这两个变量。
+      HTTP_PROXY: http://127.0.0.1:7897
+      HTTPS_PROXY: http://127.0.0.1:7897
+      NO_PROXY: localhost,127.0.0.1
+      ACC_KEEP_PROXY: "1"
+      NODE_USE_ENV_PROXY: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 预检 Secrets（缺失即明确报错，给出要补哪个键）
+        shell: bash
+        run: |
+          miss=""
+          [ -z "${DATABASE_URL:-}" ] && miss="$miss DATABASE_URL"
+          [ -z "${SUPABASE_URL:-}" ] && miss="$miss SUPABASE_URL"
+          [ -z "${SUPABASE_SECRET_KEY:-}" ] && miss="$miss SUPABASE_SECRET_KEY"
+          if [ -n "$miss" ]; then
+            echo "❌ 缺少 GitHub Repository Secrets:$miss"
+            echo "   请在 Settings → Secrets and variables → Actions → Repository secrets 添加后重跑。"
+            echo "   （DATABASE_URL 用会话池 :5432；SUPABASE_SECRET_KEY 用 service_role）"
+            exit 1
+          fi
+          echo "✔ Secrets 就绪"
+
+      - name: 诊断 DATABASE_URL（只打印主机与证书签发链，不打印密码）
+        shell: bash
+        run: |
+          node -e '
+            const u = new URL(process.env.DATABASE_URL);
+            console.log("host:", u.hostname, "| port:", u.port || 5432, "| db:", u.pathname, "| user:", decodeURIComponent(u.username));
+            const mask = (k, v) => /password|key|secret/i.test(k) ? "<masked>" : v;
+            console.log("params:", JSON.stringify([...u.searchParams.entries()].map(([k, v]) => k + "=" + mask(k, v))));
+            console.log("env NODE_OPTIONS:", process.env.NODE_OPTIONS || "(unset)", "| NODE_EXTRA_CA_CERTS:", process.env.NODE_EXTRA_CA_CERTS ? "<set>" : "(unset)", "| PGSSLMODE:", process.env.PGSSLMODE || "(unset)");
+            const tls = require("node:tls");
+            const s = tls.connect({ host: u.hostname, port: Number(u.port) || 5432, servername: u.hostname, rejectUnauthorized: false, checkServerIdentity: () => undefined }, () => {
+              const c = s.getPeerCertificate(true);
+              const chain = [];
+              let cert = c, guard = 0;
+              while (cert && cert.subject && guard++ < 5) {
+                chain.push((cert.subject.CN || "?") + "  <-issued by->  " + (cert.issuer ? cert.issuer.CN : "?"));
+                const nxt = cert.issuerCertificate;
+                cert = (nxt && nxt !== cert) ? nxt : null;
+              }
+              console.log("peer chain:");
+              chain.forEach((l, i) => console.log("  [" + i + "] " + l));
+              console.log("authorized:", s.authorized, "| authError:", s.authorizationError || "none");
+              s.end(); process.exit(0);
+            });
+            s.on("error", (e) => { console.log("tls error:", e.code || e.message); process.exit(0); });
+          '
+
+      - name: 工具链自检（self-hosted 直接用本机 Node，不再 setup-node）
+        shell: bash
+        run: |
+          echo "node=$(node -v)  npm=$(npm -v)  git=$(git --version)"
+          echo "runner=$RUNNER_NAME  os=$(uname -s 2>/dev/null || echo Windows)"
+
+      - name: 安装依赖
+        shell: bash
+        run: npm ci
+
+      - name: 等待生产就绪（/mcp 返 401 = 网关在线；给 CF 部署留时间）
+        shell: bash
+        run: |
+          echo "先静置 25s，让 Cloudflare Workers Builds 有时间完成本次 push 的部署"
+          sleep 25
+          ready=0
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE_URL/mcp" || echo 000)
+            if [ "$code" = "401" ]; then ready=1; echo "/mcp 就绪（HTTP $code），第 ${i} 次探测"; break; fi
+            echo "probe ${i}: /mcp HTTP $code，6s 后重试"; sleep 6
+          done
+          if [ "$ready" != "1" ]; then echo "❌ 等待超时：生产 /mcp 未就绪"; exit 1; fi
+          curl -s -o /dev/null -w 'help=%{http_code}\n' "$BASE_URL/help"
+
+      - name: §82 公网验收（12 项，egress 抖动自动重试至多 3 次）
+        shell: bash
+        run: |
+          n=0
+          until npx tsx scripts/acceptance.ts "$BASE_URL"; do
+            n=$((n+1))
+            if [ "$n" -ge 3 ]; then echo "❌ §82 在第 ${n} 次重试后仍失败"; exit 1; fi
+            echo "⚠️ §82 第 ${n} 次失败（多为出口 TLS 抖动或版本未刷新），8s 后重试"; sleep 8
+          done
+          echo "✅ §82 12/12 通过"
+
+      - name: §34–§40 活体演练（egress 抖动自动重试至多 4 次）
+        shell: bash
+        run: |
+          n=0
+          until npx tsx scripts/demo-agent-run.ts "$BASE_URL"; do
+            n=$((n+1))
+            if [ "$n" -ge 4 ]; then echo "❌ 演练在第 ${n} 次重试后仍失败"; exit 1; fi
+            echo "⚠️ 演练第 ${n} 次失败（多为 Supabase 出口 TLS 抖动或版本尚未刷新），8s 后重试"; sleep 8
+          done
+          echo "✅ §34–§40 活体演练全部通过，且演练项目已按 DEMO_CLEANUP 自动清理"
+
+      - name: 兜底清理（超时/中断致脚本内 finally 未跑到时，按 id 两阶段回收本次演练项目）
+        if: always()
+        shell: bash
+        run: |
+          if [ -f .e2e-project-id ]; then
+            id=$(tr -d '[:space:]' < .e2e-project-id)
+            echo "发现未清理的演练项目 $id，走两阶段回收"
+            npx tsx scripts/purge-project-by-id.ts "$id" || echo "（清理失败，请手动回收 $id）"
+          else
+            echo "无残留（脚本内 finally 已自清理）"
+          fi
