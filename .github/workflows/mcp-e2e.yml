@@ -57,6 +57,30 @@ jobs:
           fi
           echo "✔ Secrets 就绪"
 
+      - name: 诊断 DATABASE_URL（只打印主机与证书签发链，不打印密码）
+        shell: bash
+        run: |
+          node -e '
+            const u = new URL(process.env.DATABASE_URL);
+            console.log("host:", u.hostname, "| port:", u.port || 5432, "| db:", u.pathname, "| user:", decodeURIComponent(u.username));
+            const tls = require("node:tls");
+            const s = tls.connect({ host: u.hostname, port: Number(u.port) || 5432, servername: u.hostname, rejectUnauthorized: false, checkServerIdentity: () => undefined }, () => {
+              const c = s.getPeerCertificate(true);
+              const chain = [];
+              let cert = c, guard = 0;
+              while (cert && cert.subject && guard++ < 5) {
+                chain.push((cert.subject.CN || "?") + "  <-issued by->  " + (cert.issuer ? cert.issuer.CN : "?"));
+                const nxt = cert.issuerCertificate;
+                cert = (nxt && nxt !== cert) ? nxt : null;
+              }
+              console.log("peer chain:");
+              chain.forEach((l, i) => console.log("  [" + i + "] " + l));
+              console.log("authorized:", s.authorized, "| authError:", s.authorizationError || "none");
+              s.end(); process.exit(0);
+            });
+            s.on("error", (e) => { console.log("tls error:", e.code || e.message); process.exit(0); });
+          '
+
       - name: 工具链自检（self-hosted 直接用本机 Node，不再 setup-node）
         shell: bash
         run: |
