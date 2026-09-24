@@ -38,6 +38,9 @@ jobs:
       NO_PROXY: localhost,127.0.0.1
       ACC_KEEP_PROXY: "1"
       NODE_USE_ENV_PROXY: "1"
+      # §82 Test12 直连 Supabase 会话池做证书校验：Supabase 根 CA 不在 Node 内置信任库，
+      # 用实际握手导出的证书链（leaf+Intermediate+Root，已核对 CN）显式信任。
+      NODE_EXTRA_CA_CERTS: "E:\\actions-runner\\supabase-ca.pem"
 
     steps:
       - uses: actions/checkout@v4
