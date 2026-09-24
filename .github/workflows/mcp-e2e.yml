@@ -63,6 +63,9 @@ jobs:
           node -e '
             const u = new URL(process.env.DATABASE_URL);
             console.log("host:", u.hostname, "| port:", u.port || 5432, "| db:", u.pathname, "| user:", decodeURIComponent(u.username));
+            const mask = (k, v) => /password|key|secret/i.test(k) ? "<masked>" : v;
+            console.log("params:", JSON.stringify([...u.searchParams.entries()].map(([k, v]) => k + "=" + mask(k, v))));
+            console.log("env NODE_OPTIONS:", process.env.NODE_OPTIONS || "(unset)", "| NODE_EXTRA_CA_CERTS:", process.env.NODE_EXTRA_CA_CERTS ? "<set>" : "(unset)", "| PGSSLMODE:", process.env.PGSSLMODE || "(unset)");
             const tls = require("node:tls");
             const s = tls.connect({ host: u.hostname, port: Number(u.port) || 5432, servername: u.hostname, rejectUnauthorized: false, checkServerIdentity: () => undefined }, () => {
               const c = s.getPeerCertificate(true);
